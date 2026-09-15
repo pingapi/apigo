@@ -96,7 +96,7 @@ gitee: https://gitee.com/pingapi/crabc-api
 <dependency>
     <groupId>cn.crabc</groupId>
     <artifactId>crabc-spring-boot-starter</artifactId>
-    <version>5.5.0</version>
+    <version>6.0.0</version>
 </dependency>
 ```
 在程序启动类中添加下面注解
@@ -124,6 +124,36 @@ docker run -p 9377:9377 -e DB_URL=jdbc:mysql://localhost:3306/apigo -e DB_USER=r
 ```
 java -jar crabc-api.jar --spring.datasource.url=jdbc:mysql://127.0.0.1:3306/crabc --spring.datasource.username=root --spring.datasource.password=root 
 ```
+
+## AI 办公工具接入（MCP）
+
+ApiGo 内置 MCP Server（Streamable HTTP），AI 办公工具/Agent 只需配置 **1 个 URL + 1 个 Token**，即可通过对话完成「建数据源 → 写 SQL → 建接口 → 发布 → 授权 → 查日志」全流程（共 27 个工具）。
+
+### 连接地址
+
+| 场景 | MCP Server URL |
+|:--|:--|
+| 本机 / IDE 联调 | `http://127.0.0.1:9377/mcp` |
+| 内网 / Docker 部署 | `http://<服务器IP>:9377/mcp` |
+| 公网接入 | `https://<域名>/mcp`（需 HTTPS 反向代理） |
+
+
+### mcpServers 配置
+
+```json
+{
+  "mcpServers": {
+    "apigo": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:9377/mcp",
+      "headers": {
+        "Authorization": "Bearer sk-xxxxxxxx"
+      }
+    }
+  }
+}
+```
+
 
 ## 效果截图
 ### 接口开发

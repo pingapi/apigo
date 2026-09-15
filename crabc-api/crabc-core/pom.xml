@@ -76,5 +76,10 @@
             <artifactId>bcpkix-jdk18on</artifactId>
             <version>${jdk18on.version}</version>
         </dependency>
+        <!-- MCP Server（Streamable-HTTP / WebMVC），版本由 spring-ai-bom 管理 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
     </dependencies>
 </project>

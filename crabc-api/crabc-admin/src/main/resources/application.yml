@@ -20,11 +20,41 @@ spring:
     default-property-inclusion: non_null
     core:
       recycler-pool: thread-local  # Jackson3性能恢复
+  # MCP Server：对内嵌的 /mcp 端点暴露 ApiGo 业务工具给 AI 办公平台
+  ai:
+    mcp:
+      server:
+        # 与 crabc.mcp.enabled 联动：一处开关同时控制 MCP 端点与鉴权 Filter，
+        # 避免"关了开关但端点仍匿名可用"
+        enabled: ${crabc.mcp.enabled:true}
+        name: apigo-mcp-server
+        version: 5.5.0
+        protocol: STREAMABLE        # STREAMABLE | STATELESS | SSE，三选一不可共存
+        type: SYNC                  # 服务端只注册同步方法
+        instructions: >-
+          ApiGo 是 SQL2API 接口开发平台。典型流程：apigo_datasource_list/create →
+          apigo_metadata_tables/columns → apigo_sql_preview → apigo_api_create →
+          apigo_api_publish → apigo_app_create → apigo_app_authorize → apigo_log_query。
+          任何变更类操作前，请先向用户复述将要执行的变更并获得确认。
+        request-timeout: 90s        # 默认20s小于平台SQL执行超时30s，必须调大
+        capabilities:
+          tool: true
+          resource: false           # 本期不提供 Resources
+          prompt: false             # 本期不提供 Prompts
+          completion: false
+        resource-change-notification: false
+        prompt-change-notification: false
+        tool-change-notification: false
+        streamable-http:
+          mcp-endpoint: /mcp
+          disallow-delete: false
+        annotation-scanner:
+          enabled: true             # 自动扫描 @McpTool
   datasource:
     type: com.alibaba.druid.pool.DruidDataSource
-    url: jdbc:mysql://127.0.0.1:3306/crabc?characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://127.0.0.1:3306/apigo?characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
-    password:
+    password: Apigo@123
 # mybatis配置
 mybatis:
   # 搜索指定包别名
@@ -40,3 +70,13 @@ pagehelper:
 crabc:
   api-log:
     response-body: false  # 日志是否保存响应结果
+  mcp:
+    enabled: true
+    token: ${MCP_TOKEN:sk-*****}
+    user-id: "1"                    # MCP 操作归属用户（默认 admin 的 userId），决定 createBy/updateBy
+    audit-enabled: true             # 变更类工具是否记录审计日志
+    max-page-size: 20               # 工具层分页硬上限
+    max-text-length: 2000           # SQL 等长文本截断长度
+    allowed-jdbc-schemes: mysql,mariadb,tdsql,tidb,doris,starrocks,postgresql,opengauss,oracle,sqlserver,dm,clickhouse,dolphindb,duckdb,sybase,hive,db2,oceanbase
+    # true 时拒绝连接回环/内网地址
+    block-internal-host: false
