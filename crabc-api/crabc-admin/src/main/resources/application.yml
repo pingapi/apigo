@@ -28,7 +28,7 @@ spring:
         # 避免"关了开关但端点仍匿名可用"
         enabled: ${crabc.mcp.enabled:true}
         name: apigo-mcp-server
-        version: 5.5.0
+        version: 6.0.0
         protocol: STREAMABLE        # STREAMABLE | STATELESS | SSE，三选一不可共存
         type: SYNC                  # 服务端只注册同步方法
         instructions: >-
@@ -54,7 +54,7 @@ spring:
     type: com.alibaba.druid.pool.DruidDataSource
     url: jdbc:mysql://127.0.0.1:3306/apigo?characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
-    password: Apigo@123
+    password:
 # mybatis配置
 mybatis:
   # 搜索指定包别名
