@@ -1,0 +1,1 @@
+import{bL as a}from"./index-D707j7-y.js";const r={data(){return{ranges:{近24小时:[a().day(a().day()-1).startOf("day"),a().day(a().day()-1).endOf("day")],近七天:[a().add(-7,"d").startOf("add"),a().endOf()]}}}};export{r};

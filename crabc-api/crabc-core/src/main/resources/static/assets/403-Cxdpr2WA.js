@@ -1,0 +1,1 @@
+import{_ as o,m as s,r,o as n}from"./index-D707j7-y.js";const a={name:"Exception403",methods:{toHome(){this.$router.push({path:"/"})}}};function c(t,p,u,l,_,i){const e=r("a-result");return n(),s(e,{status:"403",title:"403","sub-title":t.$t("layouts.error403")},null,8,["sub-title"])}const f=o(a,[["render",c]]);export{f as default};
