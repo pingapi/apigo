@@ -14,6 +14,7 @@ import cn.crabc.core.app.mapper.BaseApiParamMapper;
 import cn.crabc.core.app.mapper.BaseAppApiMapper;
 import cn.crabc.core.app.mapper.BaseAppMapper;
 import cn.crabc.core.app.service.system.IBaseApiInfoService;
+import cn.crabc.core.datasource.constant.BaseConstant;
 import cn.crabc.core.datasource.util.PageInfo;
 import cn.crabc.core.app.util.UserThreadLocal;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
@@ -233,6 +234,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
     @Transactional(rollbackFor = Exception.class)
     public Long addApiInfo(ApiInfoParam params) {
         validatePluginConfig(params.getBaseInfo());
+        validateScriptTimeout(params.getBaseInfo());
         Date date = new Date();
         BaseApiInfo api = params.getBaseInfo();
         BaseApiSql sql = params.getSqlInfo();
@@ -245,6 +247,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         api.setDatasourceType(sql.getDatasourceType());
         api.setSqlScript(sql.getSqlScript());
         fillTransactionDefault(api);
+        fillScriptTimeoutDefault(api);
         api.setCreateTime(date);
         api.setUpdateTime(date);
         api.setCreateBy(UserThreadLocal.getUserId());
@@ -261,6 +264,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
     @Transactional(rollbackFor = Exception.class)
     public Long updateApiInfo(ApiInfoParam params) {
         validatePluginConfig(params.getBaseInfo());
+        validateScriptTimeout(params.getBaseInfo());
         Long apiId = params.getBaseInfo().getApiId();
         Integer count = apiInfoMapper.countApi(apiId);
         if (count == 0) {
@@ -282,6 +286,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         api.setDatasourceType(sql.getDatasourceType());
         api.setSqlScript(sql.getSqlScript());
         fillTransactionDefault(api);
+        fillScriptTimeoutDefault(api);
         api.setUpdateTime(updateTime);
         api.setUpdateBy(UserThreadLocal.getUserId());
         apiInfoMapper.updateApiInfo(api);
@@ -354,6 +359,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
             api.setPageSetup(sql.getPageSetup());
         }
         fillTransactionDefault(api);
+        fillScriptTimeoutDefault(api);
         apiInfoMapper.updateApiInfo(api);
         if (publishDraft) {
             apiParamMapper.delete(apiId);
@@ -464,6 +470,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         draftBaseInfo.setApiStatus(ApiStateEnum.RELEASE.getName());
         draftBaseInfo.setEnabled(publishedApi.getEnabled());
         fillTransactionDefault(draftBaseInfo);
+        fillScriptTimeoutDefault(draftBaseInfo);
         if (params.getSqlInfo() != null) {
             params.getSqlInfo().setApiId(apiId);
         }
@@ -503,6 +510,34 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
     private void fillTransactionDefault(BaseApiInfo apiInfo) {
         if (apiInfo != null && apiInfo.getTransactionEnabled() == null) {
             apiInfo.setTransactionEnabled(0);
+        }
+    }
+
+    /**
+     * 脚本超时时间只在显式配置时校验，空值或0表示沿用平台默认。
+     *
+     * @param apiInfo API基本信息
+     */
+    private void validateScriptTimeout(BaseApiInfo apiInfo) {
+        if (apiInfo == null || apiInfo.getScriptTimeoutSeconds() == null || apiInfo.getScriptTimeoutSeconds() == 0) {
+            return;
+        }
+        Integer timeout = apiInfo.getScriptTimeoutSeconds();
+        if (timeout < BaseConstant.MIN_SCRIPT_TIMEOUT_SECONDS || timeout > BaseConstant.MAX_SCRIPT_TIMEOUT_SECONDS) {
+            throw new CustomException(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(),
+                "脚本超时时间需在" + BaseConstant.MIN_SCRIPT_TIMEOUT_SECONDS
+                    + "-" + BaseConstant.MAX_SCRIPT_TIMEOUT_SECONDS + "秒之间");
+        }
+    }
+
+    /**
+     * 落库统一用0表示未配置，保证清空超时时间后更新语句也能覆盖旧值。
+     *
+     * @param apiInfo API基本信息
+     */
+    private void fillScriptTimeoutDefault(BaseApiInfo apiInfo) {
+        if (apiInfo != null && apiInfo.getScriptTimeoutSeconds() == null) {
+            apiInfo.setScriptTimeoutSeconds(0);
         }
     }
 

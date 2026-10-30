@@ -18,6 +18,7 @@ public enum ErrorStatusEnum {
     APP_UN_AUTH(40008, "认证参数X-AppKey不能为空"),
     IP_INVALID( 40010, "IP地址不在有效范围内"),
     API_SQL_ERROR( 40011, "SQL执行失败，请检查SQL是否正常"),
+    API_SCRIPT_TIMEOUT( 40012, "脚本执行超时"),
     API_AUTH_ERROR( 40013, "认证失败，请检查认证参数是否正确"),
     PARAM_NOT_FOUNT( 41000, "必传参数不能为空"),
     JWT_UN_AUTH( 402, "用户未登录"),

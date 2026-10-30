@@ -32,6 +32,12 @@ public class BaseDataServiceImpl implements IBaseDataService {
 
     @Override
     public PreviewVO sqlPreview(String datasourceId,String datasourceType, String schema, String sql) {
+        return sqlPreview(datasourceId, datasourceType, schema, sql, null);
+    }
+
+    @Override
+    public PreviewVO sqlPreview(String datasourceId, String datasourceType, String schema, String sql,
+                                Integer scriptTimeoutSeconds) {
         Map<String, Object> params = new HashMap<>();
         // 数据源类型
         if (datasourceType != null) {
@@ -39,6 +45,10 @@ public class BaseDataServiceImpl implements IBaseDataService {
         }
         params.put(BaseConstant.BASE_API_EXEC_TYPE, "preview");
         params.put(BaseConstant.PAGE_SETUP, 1);
+        // 预览同样遵循接口配置的脚本超时时间，未配置时由执行层回落到平台默认值
+        if (scriptTimeoutSeconds != null && scriptTimeoutSeconds > 0) {
+            params.put(BaseConstant.SCRIPT_TIMEOUT_SECONDS, scriptTimeoutSeconds);
+        }
         Object result = this.execute(datasourceId, datasourceType, schema, sql, params);
         PreviewVO preview = new PreviewVO();
         if (result instanceof List) {

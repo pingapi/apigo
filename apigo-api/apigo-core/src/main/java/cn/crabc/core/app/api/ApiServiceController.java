@@ -239,6 +239,8 @@ public class ApiServiceController {
         }
         // 事务开关属于接口配置的内部执行参数，覆盖同名请求参数以避免外部调用篡改事务边界。
         params.put(BaseConstant.TRANSACTION_ENABLED, normalizeTransactionEnabled(api.getTransactionEnabled()));
+        // 脚本超时时间同样按接口配置覆盖，未配置时使用平台默认值。
+        params.put(BaseConstant.SCRIPT_TIMEOUT_SECONDS, normalizeScriptTimeout(api.getScriptTimeoutSeconds()));
 
         // 执行数据查询
         Object data = baseDataService.execute(api.getDatasourceId().toString(), api.getDatasourceType(),
@@ -266,5 +268,15 @@ public class ApiServiceController {
      */
     private Integer normalizeTransactionEnabled(Integer transactionEnabled) {
         return transactionEnabled == null ? 0 : transactionEnabled;
+    }
+
+    /**
+     * 未配置脚本超时时回退平台默认值，并限制在允许区间内。
+     */
+    private Integer normalizeScriptTimeout(Integer scriptTimeoutSeconds) {
+        if (scriptTimeoutSeconds == null || scriptTimeoutSeconds <= 0) {
+            return BaseConstant.DEFAULT_SCRIPT_TIMEOUT_SECONDS;
+        }
+        return Math.min(scriptTimeoutSeconds, BaseConstant.MAX_SCRIPT_TIMEOUT_SECONDS);
     }
 }

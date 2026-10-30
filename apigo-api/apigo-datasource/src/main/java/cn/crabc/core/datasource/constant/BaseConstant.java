@@ -84,6 +84,26 @@ public class BaseConstant {
     public static final String TRANSACTION_ENABLED = "transactionEnabled";
 
     /**
+     * 脚本超时时间（秒），接口在线调用和测试执行通过该参数控制SQL最长执行时间
+     */
+    public static final String SCRIPT_TIMEOUT_SECONDS = "scriptTimeoutSeconds";
+
+    /**
+     * 未配置脚本超时时间时使用的平台默认值（秒）
+     */
+    public static final int DEFAULT_SCRIPT_TIMEOUT_SECONDS = 30;
+
+    /**
+     * 脚本超时时间下限（秒）
+     */
+    public static final int MIN_SCRIPT_TIMEOUT_SECONDS = 1;
+
+    /**
+     * 脚本超时时间上限（秒）
+     */
+    public static final int MAX_SCRIPT_TIMEOUT_SECONDS = 300;
+
+    /**
      * 需要指定catalog的数据源
      */
     public static final List<String> CATALOG_DATA_SOURCE = Arrays.asList("sybase","mysql","mariadb","doris","starrocks","tidb","tdsql");

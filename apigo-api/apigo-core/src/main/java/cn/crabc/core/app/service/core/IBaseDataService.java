@@ -29,6 +29,21 @@ public interface IBaseDataService {
     PreviewVO sqlPreview(String datasourceId, String datasourceType,String schema, String sql);
 
     /**
+     * SQL预览（指定脚本超时时间）
+     *
+     * @param datasourceId
+     * @param datasourceType
+     * @param schema
+     * @param sql
+     * @param scriptTimeoutSeconds 脚本超时时间（秒），为空或小于等于0时使用平台默认值
+     * @return
+     */
+    default PreviewVO sqlPreview(String datasourceId, String datasourceType, String schema, String sql,
+                                 Integer scriptTimeoutSeconds) {
+        return sqlPreview(datasourceId, datasourceType, schema, sql);
+    }
+
+    /**
      * 测试API
      *
      * @param datasourceId

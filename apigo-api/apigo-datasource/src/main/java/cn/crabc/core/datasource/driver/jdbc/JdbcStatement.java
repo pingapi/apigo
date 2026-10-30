@@ -21,6 +21,7 @@ import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
 import cn.crabc.core.datasource.mapper.BaseDataHandleMapper;
 import cn.crabc.core.datasource.util.PageInfo;
+import cn.crabc.core.datasource.util.SqlExceptionUtils;
 import cn.crabc.core.spi.StatementMapper;
 import com.github.pagehelper.PageHelper;
 import org.apache.ibatis.mapping.BoundSql;
@@ -53,7 +54,7 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
     // 安全配置常量
     private static final int MAX_PARAM_LENGTH = 10000; // 单个参数最大长度
     private static final int MAX_RESULT_LIMIT = 10000; // 查询结果最大行数
-    private static final int QUERY_TIMEOUT_SECONDS = 30; // 查询超时时间（秒）
+    private static final int DEFAULT_QUERY_TIMEOUT_SECONDS = BaseConstant.DEFAULT_SCRIPT_TIMEOUT_SECONDS; // 未配置时的默认超时时间（秒）
     private static final int MAX_BATCH_SIZE = 1000; // 批量操作最大数量
 
     public JdbcStatement(BaseDataHandleMapper baseMapper) {
@@ -76,9 +77,11 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
     public PageInfo selectPage(String dataSourceId, String schema, String sql, Object params, int pageNum, int pageSize) {
         String execType = null;
         List<LinkedHashMap<String, Object>> list = new ArrayList<>();
+        int timeoutSeconds = DEFAULT_QUERY_TIMEOUT_SECONDS;
         try {
             // 1. 参数安全验证和预处理
             Map<String, Object> paramsMap = setParams(dataSourceId, schema, sql, params);
+            timeoutSeconds = resolveTimeoutSeconds(paramsMap);
 
             validateSqlSafety(sql);
             execType = (String)paramsMap.get(BaseConstant.BASE_API_EXEC_TYPE);
@@ -109,12 +112,16 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
             log.error("SQL执行失败 - 数据源: {}, Schema: {}, SQL前缀: {}, 错误: {}",
                      dataSourceId, schema, truncateSql(sql), errorMsg, e);
 
+            boolean timeout = SqlExceptionUtils.isTimeout(e);
             if (execType == null) {
+                if (timeout) {
+                    throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
+                }
                 // 返回通用错误信息，不暴露SQL细节
                 throw new CustomException(51000, "查询执行失败，请检查参数和权限");
             } else {
                 LinkedHashMap<String, Object> errorMap = new LinkedHashMap<>();
-                errorMap.put("执行异常", "查询执行失败, 错误信息: " + e != null ? e.getCause() != null ? e.getCause().getMessage() : e.getMessage() : "");
+                errorMap.put("执行异常", timeout ? timeoutMessage(timeoutSeconds) : "查询执行失败, 错误信息: " + errorMsg);
                 list.add(errorMap);
             }
         } finally {
@@ -128,15 +135,20 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
 
     @Override
     public int insert(String dataSourceId, String schema, String sql, Object params) {
+        int timeoutSeconds = DEFAULT_QUERY_TIMEOUT_SECONDS;
         try {
             // 1. SQL安全验证
             validateSqlSafety(sql);
             // 2. 参数处理和执行
             Map<String, Object> paramsMap = setParams(dataSourceId, schema, sql, params);
+            timeoutSeconds = resolveTimeoutSeconds(paramsMap);
             return baseMapper.executeInsert(paramsMap);
         } catch (Exception e) {
             // 3. 安全的错误处理
             log.error("SQL插入失败 - 数据源: {}, Schema: {}, 错误: {}", dataSourceId, schema, e.getMessage());
+            if (SqlExceptionUtils.isTimeout(e)) {
+                throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
+            }
             throw new CustomException(ErrorStatusEnum.API_SQL_ERROR.getCode(), "插入操作失败：" + e.getMessage());
         } finally {
             JdbcDataSourceRouter.remove();
@@ -145,15 +157,20 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
 
     @Override
     public int delete(String dataSourceId, String schema, String sql, Object params) {
+        int timeoutSeconds = DEFAULT_QUERY_TIMEOUT_SECONDS;
         try {
             // 1. SQL安全验证
             validateSqlSafety(sql);
             // 2. 参数处理和执行
             Map<String, Object> paramsMap = setParams(dataSourceId, schema, sql, params);
+            timeoutSeconds = resolveTimeoutSeconds(paramsMap);
             return baseMapper.executeDelete(paramsMap);
         } catch (Exception e) {
             // 3. 安全的错误处理
             log.error("SQL删除失败 - 数据源: {}, Schema: {}, 错误: {}", dataSourceId, schema, e.getMessage());
+            if (SqlExceptionUtils.isTimeout(e)) {
+                throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
+            }
             throw new CustomException(ErrorStatusEnum.API_SQL_ERROR.getCode(), "删除操作失败");
         } finally {
             JdbcDataSourceRouter.remove();
@@ -162,15 +179,20 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
 
     @Override
     public int update(String dataSourceId, String schema, String sql, Object params) {
+        int timeoutSeconds = DEFAULT_QUERY_TIMEOUT_SECONDS;
         try {
             // 1. SQL安全验证
             validateSqlSafety(sql);
             // 2. 参数处理和执行
             Map<String, Object> paramsMap = setParams(dataSourceId, schema, sql, params);
+            timeoutSeconds = resolveTimeoutSeconds(paramsMap);
             return baseMapper.executeUpdate(paramsMap);
         } catch (Exception e) {
             // 3. 安全的错误处理
             log.error("SQL更新失败 - 数据源: {}, Schema: {}, 错误: {}", dataSourceId, schema, e.getMessage());
+            if (SqlExceptionUtils.isTimeout(e)) {
+                throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
+            }
             throw new CustomException(ErrorStatusEnum.API_SQL_ERROR.getCode(), "更新操作失败" + e.getMessage());
         } finally {
             JdbcDataSourceRouter.remove();
@@ -192,17 +214,19 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
         }
 
         Map<String, Object> paramsMap = copyParams(params);
+        int timeoutSeconds = resolveTimeoutSeconds(paramsMap);
         String dataSourceKey = buildDataSourceKey(dataSourceId, schema, paramsMap);
         Connection connection = null;
         boolean oldAutoCommit = true;
         boolean autoCommitChanged = false;
+        Integer oldNetworkTimeout = null;
         try {
             // 2. 获取数据库连接
             connection = getConnection(dataSourceKey, schema, paramsMap);
             oldAutoCommit = connection.getAutoCommit();
 
             // 3. 设置连接超时，防止长时间占用连接
-            connection.setNetworkTimeout(null, QUERY_TIMEOUT_SECONDS * 1000);
+            oldNetworkTimeout = applyNetworkTimeout(connection, timeoutSeconds);
 
             // 4. 事务控制
             if (transactionEnabled && oldAutoCommit) {
@@ -211,26 +235,39 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
             }
 
             int affectedRows = 0;
+            long startTime = System.currentTimeMillis();
             // 5. 逐条执行SQL并累计影响行数
             for (String sql : sqlList) {
                 validateSqlSafety(sql); // 每条SQL都要进行安全检查
-                affectedRows += executeDml(connection, sql, paramsMap);
+                affectedRows += executeDml(connection, sql, paramsMap, timeoutSeconds);
+                // 6. 多脚本共用同一超时预算，超过配置时间立即终止后续脚本
+                if (System.currentTimeMillis() - startTime > timeoutSeconds * 1000L) {
+                    throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
+                }
             }
 
-            // 6. 提交事务
+            // 7. 提交事务
             if (transactionEnabled) {
                 connection.commit();
             }
             return affectedRows;
         } catch (Exception e) {
-            // 7. 事务回滚
+            // 8. 事务回滚
             rollbackQuietly(connection, transactionEnabled);
             log.error("多脚本SQL执行失败 - 数据源: {}, 事务模式: {}, 错误: {}",
                      dataSourceId, transactionEnabled, e.getMessage());
+            // 执行层已经归类过的业务异常直接抛出，避免被统一改写成SQL错误
+            if (e instanceof CustomException customException) {
+                throw customException;
+            }
+            if (SqlExceptionUtils.isTimeout(e)) {
+                throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
+            }
             throw new CustomException(ErrorStatusEnum.API_SQL_ERROR.getCode(), "批量操作执行失败");
         } finally {
-            // 8. 恢复连接状态并释放资源
+            // 9. 恢复连接状态并释放资源
             restoreAutoCommit(connection, autoCommitChanged, oldAutoCommit);
+            restoreNetworkTimeout(connection, oldNetworkTimeout);
             closeQuietly(connection);
             JdbcDataSourceRouter.remove();
         }
@@ -256,6 +293,57 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
             paramsMap.putAll((Map<String, Object>) params);
         }
         return paramsMap;
+    }
+
+    /**
+     * 接口配置了超时时间时以其为准，未配置则沿用平台默认值。
+     */
+    private int resolveTimeoutSeconds(Map<String, Object> paramsMap) {
+        Object value = paramsMap == null ? null : paramsMap.get(BaseConstant.SCRIPT_TIMEOUT_SECONDS);
+        if (value == null) {
+            return DEFAULT_QUERY_TIMEOUT_SECONDS;
+        }
+        try {
+            int timeoutSeconds = Integer.parseInt(value.toString());
+            if (timeoutSeconds < BaseConstant.MIN_SCRIPT_TIMEOUT_SECONDS) {
+                return DEFAULT_QUERY_TIMEOUT_SECONDS;
+            }
+            return Math.min(timeoutSeconds, BaseConstant.MAX_SCRIPT_TIMEOUT_SECONDS);
+        } catch (NumberFormatException e) {
+            return DEFAULT_QUERY_TIMEOUT_SECONDS;
+        }
+    }
+
+    private String timeoutMessage(int timeoutSeconds) {
+        return "脚本执行超时，接口配置的超时时间为 " + timeoutSeconds + " 秒";
+    }
+
+    /**
+     * 网络超时是连接级设置，返回原值供归还连接前恢复。
+     */
+    private Integer applyNetworkTimeout(Connection connection, int timeoutSeconds) {
+        try {
+            Integer oldNetworkTimeout = connection.getNetworkTimeout();
+            connection.setNetworkTimeout(null, timeoutSeconds * 1000);
+            return oldNetworkTimeout;
+        } catch (SQLException | RuntimeException e) {
+            log.debug("设置连接网络超时失败，驱动可能不支持该能力", e);
+            return null;
+        }
+    }
+
+    /**
+     * 连接来自池，归还前恢复网络超时，避免影响后续复用连接。
+     */
+    private void restoreNetworkTimeout(Connection connection, Integer oldNetworkTimeout) {
+        if (connection == null || oldNetworkTimeout == null) {
+            return;
+        }
+        try {
+            connection.setNetworkTimeout(null, oldNetworkTimeout);
+        } catch (SQLException | RuntimeException e) {
+            log.debug("恢复连接网络超时失败", e);
+        }
     }
 
     /**
@@ -288,11 +376,16 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
     /**
      * 每条脚本先交给MyBatis生成BoundSql，再用PreparedStatement绑定参数执行。
      */
-    private int executeDml(Connection connection, String sql, Map<String, Object> paramsMap) throws SQLException {
+    private int executeDml(Connection connection, String sql, Map<String, Object> paramsMap, int timeoutSeconds) throws SQLException {
         BoundSql boundSql = buildBoundSql(sql, paramsMap);
         try (PreparedStatement statement = connection.prepareStatement(boundSql.getSql())) {
             // 1. 设置SQL执行超时时间，防止慢查询
-            statement.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
+            try {
+                statement.setQueryTimeout(timeoutSeconds);
+            } catch (SQLException | RuntimeException e) {
+                // 个别驱动不支持语句超时，保持原有执行行为
+                log.debug("设置SQL语句超时失败，超时时间：{}秒", timeoutSeconds, e);
+            }
             // 2. 绑定参数
             bindParameters(statement, boundSql, paramsMap);
             // 3. 执行更新

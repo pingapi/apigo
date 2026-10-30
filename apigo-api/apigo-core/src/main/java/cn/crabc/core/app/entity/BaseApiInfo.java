@@ -91,6 +91,11 @@ public class BaseApiInfo extends BaseEntity {
     private Integer transactionEnabled;
 
     /**
+     * 脚本超时时间（秒）；为空或小于等于0时使用平台默认30秒。
+     */
+    private Integer scriptTimeoutSeconds;
+
+    /**
      * 限流时间窗口秒数；为空或小于等于0时不启用限流。
      */
     private Integer rateLimitWindowSeconds;

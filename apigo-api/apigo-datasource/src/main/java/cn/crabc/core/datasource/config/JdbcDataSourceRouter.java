@@ -11,6 +11,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.datasource.lookup.AbstractRoutingDataSource;
 
 import javax.sql.DataSource;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.SQLException;
 
@@ -143,68 +147,129 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
     @Override
     public Connection getConnection() throws SQLException {
         log.debug("---->>切换数据库连接----");
-        Connection connection = this.determineTargetDataSource().getConnection();
+        return applySchemaSwitch(this.determineTargetDataSource().getConnection());
+    }
 
-        String originalCatalog = null;
-        String originalSchema = null;
-        // 标记：是否执行了catalog/schema 切换
-        boolean needReset = false;
+    @Override
+    public Connection getConnection(String username, String password) throws SQLException {
+        return applySchemaSwitch(this.determineTargetDataSource().getConnection(username, password));
+    }
+
+    /**
+     * 按路由 key（dataSourceId:dataSourceType:schema）切换连接的库/Schema。
+     *
+     * 切换必须在 SQL 执行期间保持有效，因此不在本方法内还原，而是返回代理连接，
+     * 在调用方 close（归还连接池）之前还原原始库/Schema，避免脏状态污染后续请求。
+     */
+    private Connection applySchemaSwitch(Connection connection) throws SQLException {
+        Object dataSourceKey = this.determineCurrentLookupKey();
+        if (dataSourceKey == null) {
+            return connection;
+        }
+        String[] dataSourceStr = dataSourceKey.toString().split(":");
+        // key 缺少 schema 段时不切换，保持数据源默认库/Schema
+        if (dataSourceStr.length < 3) {
+            return connection;
+        }
+        String dataSourceType = dataSourceStr[1];
+        String targetSchema = dataSourceStr[2];
+        // 库/Schema 语义区分：MySQL 系用 catalog，其余用 schema
+        boolean catalogMode = BaseConstant.CATALOG_DATA_SOURCE.contains(dataSourceType);
 
         try {
-            Object dataSourceKey = this.determineCurrentLookupKey();
-            if (dataSourceKey != null && dataSourceKey.toString().contains(":")) {
-                String[] dataSourceStr = dataSourceKey.toString().split(":");
-                if (dataSourceStr.length < 3) {
-                    return connection;
-                }
-                String dataSourceType = dataSourceStr[1];
-                String targetSchema = dataSourceStr[2];
-
-                // 原始状态
-                originalCatalog = connection.getCatalog();
-                originalSchema = connection.getSchema();
-
-                if (BaseConstant.CATALOG_DATA_SOURCE.contains(dataSourceType)) {
-                    if (!equalsIgnoreNull(originalCatalog, targetSchema)) {
-                        connection.setCatalog(targetSchema);
-                        needReset = true;
-                    }
+            String original = catalogMode ? connection.getCatalog() : connection.getSchema();
+            if (!equalsIgnoreNull(original, targetSchema)) {
+                if (catalogMode) {
+                    connection.setCatalog(targetSchema);
                 } else {
-                    if (!equalsIgnoreNull(originalSchema, targetSchema)) {
-                        connection.setSchema(targetSchema);
-                        needReset = true;
-                    }
+                    connection.setSchema(targetSchema);
                 }
+                log.debug("连接切换完成: {} -> {}", original, targetSchema);
+                // 交给调用方的连接在 close 时还原，保证本条SQL执行期间一直是目标库/Schema
+                return (Connection) Proxy.newProxyInstance(
+                        Connection.class.getClassLoader(),
+                        new Class<?>[]{Connection.class},
+                        new SchemaRestoreHandler(connection, catalogMode, original));
             }
             return connection;
-        } catch (Exception e) {
-            if (connection != null) {
-                try {
-                    connection.close();
-                } catch (SQLException closeException) {
-                    log.error("关闭异常连接失败", closeException);
-                }
-            }
-            log.error("数据源连接获取失败, dataSourceKey: {}", determineCurrentLookupKey(), e);
+        } catch (SQLException | RuntimeException e) {
+            closeQuietly(connection);
+            log.error("数据源连接切换库/Schema失败, dataSourceKey: {}", dataSourceKey, e);
             throw new SQLException(e);
-        } finally {
-            if (needReset && connection != null && !connection.isClosed()) {
-                try {
-                    // 还原 Catalog
-                    if (!equalsIgnoreNull(connection.getCatalog(), originalCatalog)) {
-                        connection.setCatalog(originalCatalog);
-                    }
-                    // 还原 Schema
-                    if (!equalsIgnoreNull(connection.getSchema(), originalSchema)) {
-                        connection.setSchema(originalSchema);
-                    }
-                } catch (Exception resetEx) {
-                    // 还原失败 → 直接销毁脏连接
-                    log.warn("重置连接schema/catalog失败，销毁脏连接", resetEx);
-                    try {
-                        connection.close();
-                    } catch (SQLException ignored) {}
+        }
+    }
+
+    /**
+     * 关闭连接，忽略关闭异常
+     */
+    private void closeQuietly(Connection connection) {
+        try {
+            if (connection != null && !connection.isClosed()) {
+                connection.close();
+            }
+        } catch (SQLException ignored) {
+            // 关闭失败不影响主流程
+        }
+    }
+
+    /**
+     * 连接代理：只拦截 close，在归还连接池之前还原原始库/Schema
+     */
+    private static final class SchemaRestoreHandler implements InvocationHandler {
+
+        private final Connection target;
+        /**
+         * true：切换的是 catalog（MySQL 系）；false：切换的是 schema
+         */
+        private final boolean catalogMode;
+        /**
+         * 连接池中的原始库/Schema，连接归还前需要恢复
+         */
+        private final String original;
+
+        private SchemaRestoreHandler(Connection target, boolean catalogMode, String original) {
+            this.target = target;
+            this.catalogMode = catalogMode;
+            this.original = original;
+        }
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            String methodName = method.getName();
+            if ("close".equals(methodName)) {
+                restore();
+                target.close();
+                return null;
+            }
+            // equals/hashCode 透传到真实连接，避免代理与连接池连接比较时语义错乱
+            if ("equals".equals(methodName) && args != null && args.length == 1) {
+                return proxy == args[0] || target.equals(args[0]);
+            }
+            if ("hashCode".equals(methodName)) {
+                return target.hashCode();
+            }
+            try {
+                return method.invoke(target, args);
+            } catch (InvocationTargetException e) {
+                throw e.getTargetException();
+            }
+        }
+
+        /**
+         * 还原连接状态，失败只记录日志：连接随后会被关闭并归还连接池
+         */
+        private void restore() {
+            try {
+                if (target.isClosed()) {
+                    return;
                 }
+                if (catalogMode) {
+                    target.setCatalog(original);
+                } else {
+                    target.setSchema(original);
+                }
+            } catch (Exception e) {
+                log.warn("还原连接库/Schema失败, 原始值: {}", original, e);
             }
         }
     }

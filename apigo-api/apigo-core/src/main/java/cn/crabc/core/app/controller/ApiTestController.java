@@ -1,15 +1,19 @@
 package cn.crabc.core.app.controller;
 
 import cn.crabc.core.app.entity.param.ApiTestParam;
+import cn.crabc.core.app.entity.vo.ApiInfoVO;
 import cn.crabc.core.app.entity.vo.PreviewVO;
 import cn.crabc.core.app.enums.ResultTypeEnum;
 import cn.crabc.core.app.service.core.IBaseDataService;
+import cn.crabc.core.app.service.system.IBaseApiInfoService;
 import cn.crabc.core.app.util.Result;
 import cn.crabc.core.datasource.constant.BaseConstant;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
 import cn.crabc.core.plugin.DataPluginException;
 import cn.crabc.core.plugin.DataPluginExecutor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import tools.jackson.databind.json.JsonMapper;
@@ -30,8 +34,12 @@ import java.util.Set;
 @RequestMapping("/api/box/sys/test")
 public class ApiTestController {
 
+    private static final Logger log = LoggerFactory.getLogger(ApiTestController.class);
+
     @Autowired
     private IBaseDataService baseDataService;
+    @Autowired
+    private IBaseApiInfoService apiInfoService;
     @Autowired
     private JsonMapper jsonMapper;
     @Autowired
@@ -48,7 +56,9 @@ public class ApiTestController {
         if (api.getDatasourceId() == null) {
             return Result.error(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(), ErrorStatusEnum.PARAM_NOT_FOUNT.getMassage());
         }
-        PreviewVO previewVO = baseDataService.sqlPreview(api.getDatasourceId(),api.getDatasourceType(), api.getSchemaName(), api.getSqlScript());
+        // 运行预览与在线调用保持一致，按接口配置的脚本超时时间执行
+        PreviewVO previewVO = baseDataService.sqlPreview(api.getDatasourceId(), api.getDatasourceType(),
+            api.getSchemaName(), api.getSqlScript(), resolveScriptTimeout(api));
         // 应用数据插件链：开发页运行预览同样走插件，字段变化时重建 metadata
         applyPluginToPreview(previewVO, api.getPluginConfig());
         return Result.success(previewVO);
@@ -105,6 +115,8 @@ public class ApiTestController {
         try {
             // 构建参数Map
             Map<String, Object> paramsMap = buildParamsMap(params);
+            // 测试执行与线上调用保持一致，按接口配置的脚本超时时间执行
+            paramsMap.put(BaseConstant.SCRIPT_TIMEOUT_SECONDS, resolveScriptTimeout(apiId, params));
             
             // 执行SQL
             Object data = baseDataService.execute(
@@ -127,10 +139,49 @@ public class ApiTestController {
         } catch (Exception e) {
             if(e instanceof CustomException) {
                 CustomException ex = (CustomException) e;
+                if (ex.getCode() == ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode()) {
+                    return Result.error(ex.getCode(), ex.getMsg());
+                }
                 return Result.error("测试异常，请检查参数或者SQL是否正常！" +ex.getMsg());
             }
             return Result.error("测试异常，请检查参数或者SQL是否正常！");
         }
+    }
+
+    /**
+     * 运行预览入口没有缓存上下文，按页面当前设置或接口配置解析超时时间。
+     */
+    private int resolveScriptTimeout(ApiTestParam api) {
+        return resolveScriptTimeout(api.getApiId(), api);
+    }
+
+    /**
+     * 超时时间优先级：页面当前设置（未保存的修改也能生效）> 接口已保存配置 > 平台默认值。
+     *
+     * @param apiId  接口ID，可能为空（新建未保存的接口）
+     * @param params 请求参数，可能携带页面当前输入的脚本超时时间
+     * @return 生效的脚本超时时间（秒）
+     */
+    private int resolveScriptTimeout(Long apiId, ApiTestParam params) {
+        Integer requestTimeout = params == null ? null : params.getScriptTimeoutSeconds();
+        if (requestTimeout != null && requestTimeout >= BaseConstant.MIN_SCRIPT_TIMEOUT_SECONDS) {
+            return Math.min(requestTimeout, BaseConstant.MAX_SCRIPT_TIMEOUT_SECONDS);
+        }
+        if (apiId == null) {
+            return BaseConstant.DEFAULT_SCRIPT_TIMEOUT_SECONDS;
+        }
+        try {
+            ApiInfoVO apiInfo = apiInfoService.getApiInfo(apiId);
+            if (apiInfo != null && apiInfo.getBaseInfo() != null
+                && apiInfo.getBaseInfo().getScriptTimeoutSeconds() != null
+                && apiInfo.getBaseInfo().getScriptTimeoutSeconds() > 0) {
+                return Math.min(apiInfo.getBaseInfo().getScriptTimeoutSeconds(),
+                    BaseConstant.MAX_SCRIPT_TIMEOUT_SECONDS);
+            }
+        } catch (Exception e) {
+            log.warn("读取接口超时配置失败，按平台默认值执行，apiId：{}", apiId, e);
+        }
+        return BaseConstant.DEFAULT_SCRIPT_TIMEOUT_SECONDS;
     }
 
     /**

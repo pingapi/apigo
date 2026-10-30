@@ -12,6 +12,16 @@ import java.util.Map;
 @Getter
 public class ApiTestParam {
 
+    /**
+     * 接口ID，运行预览时用于读取接口已保存的脚本超时等配置
+     */
+    private Long apiId;
+
+    /**
+     * 页面当前设置的脚本超时时间（秒），未保存的修改也能在运行预览/测试时立即生效
+     */
+    private Integer scriptTimeoutSeconds;
+
     private String sqlScript;
 
     private String datasourceId;

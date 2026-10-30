@@ -11,6 +11,12 @@ ALTER TABLE base_api_info ADD plugin_config text COMMENT '数据插件配置JSON
 -- ALTER TABLE base_api_info ADD COLUMN plugin_config TEXT;
 -- COMMENT ON COLUMN base_api_info.plugin_config IS '数据插件配置JSON';
 
+-- v6.3.1
+ALTER TABLE base_api_info ADD script_timeout_seconds int DEFAULT 0 COMMENT '脚本超时时间（秒），0或空使用默认30秒';
+-- PostgreSQL 方言（PostgreSQL 库请执行以下语句，MySQL 请忽略）
+-- ALTER TABLE base_api_info ADD COLUMN script_timeout_seconds INTEGER DEFAULT 0;
+-- COMMENT ON COLUMN base_api_info.script_timeout_seconds IS '脚本超时时间（秒），0或空使用默认30秒';
+
 -- 索引优化 2026-08-11
 -- base_api_info 表新增索引
 ALTER TABLE base_api_info ADD INDEX idx_api_status_release_time (api_status, release_time);

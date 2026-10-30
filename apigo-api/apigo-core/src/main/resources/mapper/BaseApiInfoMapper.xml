@@ -94,6 +94,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             transaction_enabled,
             rate_limit_window_seconds,
             rate_limit_count,
+            script_timeout_millis,
             datasource_id,
             datasource_type,
             schema_name,
@@ -128,6 +129,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             transaction_enabled,
             rate_limit_window_seconds,
             rate_limit_count,
+            script_timeout_millis,
             datasource_id,
             datasource_type,
             schema_name,
@@ -168,6 +170,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             transaction_enabled,
             rate_limit_window_seconds,
             rate_limit_count,
+            script_timeout_millis,
             sql_type,
             result_type,
             draft_content,
@@ -245,6 +248,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="transactionEnabled != null">transaction_enabled,</if>
             <if test="rateLimitWindowSeconds != null">rate_limit_window_seconds,</if>
             <if test="rateLimitCount != null">rate_limit_count,</if>
+            <if test="scriptTimeoutMillis != null">script_timeout_millis,</if>
             <if test="pluginConfig != null and pluginConfig != ''">plugin_config,</if>
                 enabled,
         create_by,
@@ -273,6 +277,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <if test="transactionEnabled != null">#{transactionEnabled},</if>
         <if test="rateLimitWindowSeconds != null">#{rateLimitWindowSeconds},</if>
         <if test="rateLimitCount != null">#{rateLimitCount},</if>
+        <if test="scriptTimeoutMillis != null">#{scriptTimeoutMillis},</if>
         <if test="pluginConfig != null and pluginConfig != ''">#{pluginConfig},</if>
         #{enabled},
         #{createBy},
@@ -307,6 +312,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="transactionEnabled != null">transaction_enabled =#{transactionEnabled},</if>
             <if test="rateLimitWindowSeconds != null">rate_limit_window_seconds =#{rateLimitWindowSeconds},</if>
             <if test="rateLimitCount != null">rate_limit_count =#{rateLimitCount},</if>
+            <if test="scriptTimeoutMillis != null">script_timeout_millis =#{scriptTimeoutMillis},</if>
             <if test="pluginConfig != null">plugin_config = #{pluginConfig},</if>
             <if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
             update_time = #{updateTime}
