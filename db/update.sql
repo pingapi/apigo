@@ -16,6 +16,8 @@ ALTER TABLE base_api_info ADD script_timeout_seconds int DEFAULT 0 COMMENT '脚�
 -- PostgreSQL 方言（PostgreSQL 库请执行以下语句，MySQL 请忽略）
 -- ALTER TABLE base_api_info ADD COLUMN script_timeout_seconds INTEGER DEFAULT 0;
 -- COMMENT ON COLUMN base_api_info.script_timeout_seconds IS '脚本超时时间（秒），0或空使用默认30秒';
+-- 早期开发库若已按旧脚本建成 script_timeout_millis，请改用重命名（MySQL / PostgreSQL 通用）
+-- ALTER TABLE base_api_info RENAME COLUMN script_timeout_millis TO script_timeout_seconds;
 
 -- 索引优化 2026-08-11
 -- base_api_info 表新增索引

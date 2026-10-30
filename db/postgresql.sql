@@ -16,7 +16,7 @@ CREATE TABLE base_api_info (
     transaction_enabled INTEGER DEFAULT 0,
     rate_limit_window_seconds INTEGER DEFAULT NULL,
     rate_limit_count INTEGER DEFAULT NULL,
-    script_timeout_millis INTEGER DEFAULT 0,
+    script_timeout_seconds INTEGER DEFAULT 0,
     sql_type VARCHAR(20) DEFAULT NULL,
     result_type VARCHAR(30) DEFAULT NULL,
     sql_script TEXT,
@@ -51,7 +51,7 @@ COMMENT ON COLUMN base_api_info.page_setup IS '分页设置，不分页：0, 分
 COMMENT ON COLUMN base_api_info.transaction_enabled IS '是否开启事务 1/0';
 COMMENT ON COLUMN base_api_info.rate_limit_window_seconds IS '限流时间窗口秒数';
 COMMENT ON COLUMN base_api_info.rate_limit_count IS '限流窗口请求次数';
-COMMENT ON COLUMN base_api_info.script_timeout_millis IS '脚本超时时间（毫秒），0或空使用默认30000毫秒';
+COMMENT ON COLUMN base_api_info.script_timeout_seconds IS '脚本超时时间（秒），0或空使用默认30秒';
 COMMENT ON COLUMN base_api_info.sql_type IS 'SQL执行类型（select、insert、update、delete）';
 COMMENT ON COLUMN base_api_info.result_type IS '返回结果类型： one、array、excel';
 COMMENT ON COLUMN base_api_info.sql_script IS 'SQL脚本';

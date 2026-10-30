@@ -1,0 +1,1 @@
+import{bM as a}from"./index-DP-beksD.js";const d={computed:{ranges(){return{[this.$t("manage.last24Hours")]:[a().day(a().day()-1).startOf("day"),a().day(a().day()-1).endOf("day")],[this.$t("manage.last7Days")]:[a().add(-7,"d").startOf("add"),a().endOf()]}}}};export{d as r};

@@ -1,1 +1,0 @@
-import{_ as e}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{r as t,o as r,k as n}from"./index-B_uWPqHO.js";const a={name:"BlankLayout"};function s(c,_,p,m,u,f){const o=t("router-view");return r(),n(o)}const k=e(a,[["render",s]]);export{k as default};
