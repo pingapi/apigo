@@ -103,7 +103,7 @@ The enterprise edition is more powerful — for commercial use please join the g
 <dependency>
     <groupId>cn.crabc</groupId>
     <artifactId>apigo-spring-boot-starter</artifactId>
-    <version>6.3.0</version>
+    <version>6.3.1</version>
 </dependency>
 ```
 Add the following annotation to your application startup class:

@@ -16,8 +16,8 @@
     </modules>
 
     <properties>
-        <!-- crabc 版本-->
-        <revision>6.3.0</revision>
+        <!-- apigo 版本-->
+        <revision>6.3.1</revision>
         <java.version>21</java.version>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
