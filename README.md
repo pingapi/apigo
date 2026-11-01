@@ -110,7 +110,7 @@ gitee: https://gitee.com/pingapi/apigo
 <dependency>
     <groupId>cn.crabc</groupId>
     <artifactId>apigo-spring-boot-starter</artifactId>
-    <version>6.3.1</version>
+    <version>6.4.0</version>
 </dependency>
 ```
 在程序启动类中添加下面注解
