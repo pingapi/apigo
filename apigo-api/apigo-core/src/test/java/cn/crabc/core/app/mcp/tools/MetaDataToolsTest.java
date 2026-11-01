@@ -56,7 +56,8 @@ class MetaDataToolsTest {
     @DisplayName("库列表：CATALOG 型数据源走 getCatalogs")
     void schemasForCatalogType() {
         when(dataSourceService.getDataSource(3)).thenReturn(datasource("mysql"));
-        when(metaData.getCatalogs("3")).thenReturn(List.of("orders", "crm"));
+        // JdbcMetaData.getCatalogs 实际返回 Schema（schema 与 catalog 同为库名），夹具必须照此构造
+        when(metaData.getCatalogs("3")).thenReturn(List.of(schema("orders", "orders"), schema("crm", "crm")));
 
         Map<String, Object> output = tools.schemas("3");
 
@@ -64,6 +65,7 @@ class MetaDataToolsTest {
         assertEquals(2, output.get("returned"));
         assertEquals(false, output.get("truncated"));
         assertEquals("orders", items(output).get(0).get("schema"));
+        assertEquals("crm", items(output).get(1).get("schema"));
         verify(metaData).getCatalogs("3");
         verify(metaData, never()).getSchemas(eq("3"), isNull());
     }

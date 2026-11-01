@@ -305,4 +305,20 @@ class McpToolSupportTest {
         assertEquals(1, map.get("b"));
         assertTrue(McpToolSupport.result("k", null).isEmpty());
     }
+
+    @Test
+    @DisplayName("业务异常必须携带 Throwable.message：MCP 框架与审计都按 getMessage() 取错误文本")
+    void businessExceptionCarriesMessage() {
+        CustomException failure =
+                new CustomException(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(), "必传参数不能为空：sqlScript");
+
+        assertEquals("必传参数不能为空：sqlScript", failure.getMessage(),
+                "message 未传给父类时，MCP 回传给模型的是 null，审计 msg 也会退化成 -");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> support.bindUser("apigo_sql_parse", () -> {
+                    throw failure;
+                }));
+        assertEquals("必传参数不能为空：sqlScript", thrown.getMessage());
+    }
 }

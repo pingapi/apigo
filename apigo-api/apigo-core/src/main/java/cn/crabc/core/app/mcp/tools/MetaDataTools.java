@@ -73,7 +73,7 @@ public class MetaDataTools {
                 total = catalogs == null ? 0 : catalogs.size();
                 if (catalogs != null) {
                     for (Object catalog : catalogs) {
-                        items.add(McpToolSupport.result("schema", String.valueOf(catalog)));
+                        items.add(McpToolSupport.result("schema", catalogName(catalog)));
                         if (items.size() >= MAX_ITEMS) {
                             break;
                         }
@@ -201,6 +201,14 @@ public class MetaDataTools {
     private boolean isCatalogType(String datasourceType) {
         return datasourceType != null
                 && BaseConstant.CATALOG_DATA_SOURCE.contains(datasourceType.toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * CATALOG 型驱动的 getCatalogs 返回 {@link Schema}，直接 toString 会得到对象地址，
+     * 因此取库名（该值会原样作为 metadata_tables 的 schema 参数回传）。
+     */
+    private String catalogName(Object catalog) {
+        return catalog instanceof Schema schema ? schema.getCatalog() : String.valueOf(catalog);
     }
 
     private String dataSourceType(String datasourceId) {

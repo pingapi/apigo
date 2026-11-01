@@ -149,12 +149,16 @@ public class BaseDataSourceServiceImpl implements IBaseDataSourceService {
 
     @Override
     public String test(BaseDatasource dataSource) {
-        this.parsePassword(dataSource);
         if ("custom".equals(dataSource.getDatasourceType())){
             String dataSourceType = SQLUtil.getDataSourceType(dataSource.getJdbcUrl());
             dataSource.setDatasourceType(dataSourceType);
         }
-        return iBaseDataService.testConnection(dataSource);
+        // 密码只解码到副本上：写回入参会让"先测连、再落库"的调用方把明文存进库，
+        // 随后 addCache 解码明文抛 Illegal base64 character 40，数据源进不了连接池缓存。
+        BaseDatasource probe = new BaseDatasource();
+        BeanUtils.copyProperties(dataSource, probe);
+        this.parsePassword(probe);
+        return iBaseDataService.testConnection(probe);
     }
 
     /**

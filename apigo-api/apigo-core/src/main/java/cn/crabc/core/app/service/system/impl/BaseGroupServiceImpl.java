@@ -67,7 +67,10 @@ public class BaseGroupServiceImpl implements IBaseGroupService {
         List<BaseGroupVO> treeList = new ArrayList<>();
         List<BaseGroupVO> list = baseGroupMapper.selectList(userId);
         List<ApiComboBoxVO> apiList = apiInfoMapper.selectApiGroup(null, userId);
-        Map<Integer, List<ApiComboBoxVO>> apiMap =apiList.stream().collect(Collectors.groupingBy(ApiComboBoxVO::getGroupId));
+        // group_id 为空的历史数据无法归属任何分组，必须跳过：groupingBy 遇到 null key 会让整棵分组树报错
+        Map<Integer, List<ApiComboBoxVO>> apiMap = apiList.stream()
+                .filter(api -> api.getGroupId() != null)
+                .collect(Collectors.groupingBy(ApiComboBoxVO::getGroupId));
 
 //        if (apiId != null) {
 //            this.getApiInfo(apiId, list);
