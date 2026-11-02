@@ -18,22 +18,21 @@
     <properties>
         <!-- apigo 版本-->
         <revision>6.4.0</revision>
-        <java.version>21</java.version>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
+        <java.version>25</java.version>
+        <maven.compiler.source>25</maven.compiler.source>
+        <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <spring-boot.version>4.1.1</spring-boot.version>
+        <spring-boot.version>4.1.2</spring-boot.version>
         <spring-boot.mybatis.version>4.1.0</spring-boot.mybatis.version>
         <mybatis-plus.version>3.5.17</mybatis-plus.version>
         <pagehelper.boot.version>4.1.1</pagehelper.boot.version>
         <spring-boot.druid.version>1.2.28</spring-boot.druid.version>
-        <fastjson.version>2.0.61</fastjson.version>
+        <fastjson.version>2.0.66</fastjson.version>
         <jwt.version>0.13.0</jwt.version>
         <commons-pool2.version>2.13.1</commons-pool2.version>
-        <lombok.version>1.18.46</lombok.version>
+        <lombok.version>1.18.48</lombok.version>
         <jdk18on.version>1.80</jdk18on.version>
-        <!-- Spring AI 2.0（MCP Server），与 Spring Boot 4.x / Jackson 3 同代 -->
-        <spring-ai.version>2.0.1</spring-ai.version>
+        <spring-ai.version>2.0.2</spring-ai.version>
     </properties>
     <repositories>
         <repository>

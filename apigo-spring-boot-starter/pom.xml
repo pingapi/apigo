@@ -6,13 +6,13 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.0</version>
+        <version>4.1.2</version>
     </parent>
 
     <name>crabc-spring-boot-starter</name>
     <groupId>cn.crabc</groupId>
     <artifactId>apigo-spring-boot-starter</artifactId>
-    <version>6.2.0</version>
+    <version>6.4.0</version>
     <packaging>jar</packaging>
     <description>Low code tools</description>
     <url>https://github.com/pingapi/apigo</url>
@@ -33,8 +33,8 @@
         </developer>
     </developers>
     <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.source>25</maven.compiler.source>
+        <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -42,7 +42,7 @@
         <dependency>
             <groupId>cn.crabc</groupId>
             <artifactId>apigo-core</artifactId>
-            <version>6.2.0</version>
+            <version>6.4.0</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
