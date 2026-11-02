@@ -4,6 +4,8 @@ import cn.crabc.core.app.entity.BaseDatasource;
 import cn.crabc.core.app.service.system.IBaseDataSourceService;
 import cn.crabc.core.datasource.util.PageInfo;
 import cn.crabc.core.app.util.Result;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,6 +17,8 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/box/sys/datasource")
 public class DataSourceController {
+
+    private static final Logger log = LoggerFactory.getLogger(DataSourceController.class);
 
     @Autowired
     private IBaseDataSourceService baseDataSourceService;
@@ -71,7 +75,9 @@ public class DataSourceController {
         if("1".equals(test)){
             return Result.success("测试成功");
         }
-        return Result.error("测试失败：" + test);
+        // 驱动原始报错可能包含 host/port/库名，前端只给泛化提示，细节仅进日志
+        log.warn("数据源测试连接失败：{}", test);
+        return Result.error("测试连接失败，请检查连接参数");
     }
 
     /**

@@ -20,6 +20,7 @@ import cn.crabc.core.datasource.constant.BaseConstant;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
 import cn.crabc.core.datasource.mapper.BaseDataHandleMapper;
+import cn.crabc.core.datasource.util.CachedXmlLanguageDriver;
 import cn.crabc.core.datasource.util.PageInfo;
 import cn.crabc.core.datasource.util.SqlExceptionUtils;
 import cn.crabc.core.spi.StatementMapper;
@@ -53,12 +54,40 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
 
     // 安全配置常量
     private static final int MAX_PARAM_LENGTH = 10000; // 单个参数最大长度
-    private static final int MAX_RESULT_LIMIT = 10000; // 查询结果最大行数
+    private static final int MAX_RESULT_LIMIT = BaseConstant.MAX_RESULT_LIMIT; // 查询结果最大行数
+    private static final int MAX_SQL_LENGTH = 50000; // SQL最大长度
     private static final int DEFAULT_QUERY_TIMEOUT_SECONDS = BaseConstant.DEFAULT_SCRIPT_TIMEOUT_SECONDS; // 未配置时的默认超时时间（秒）
     private static final int MAX_BATCH_SIZE = 1000; // 批量操作最大数量
 
+    /**
+     * "SQL 已自带分页"的判定规则。
+     * <p>
+     * 只认数字与 MyBatis 占位符，并配合词边界：避免 limit_type、credit_limit_2、
+     * unlimited1 这类列名/别名被误判成"已分页"，从而导致分页保护被整体跳过。
+     */
+    private static final Pattern[] PAGE_CLAUSE_PATTERNS = {
+            Pattern.compile("(?i)\\blimit\\b\\s*(\\d+|\\?|#\\{|\\$\\{)"),              // mysql/tidb：limit 10 / limit ? / limit #{size}
+            Pattern.compile("(?i)\\boffset\\b\\s*(\\d+|\\?|#\\{|\\$\\{)"),             // postgres/sqlserver：offset 20
+            Pattern.compile("(?i)\\brownum\\b\\s*(<=|<|=)\\s*\\d+"),                    // oracle：rownum <= 10
+            Pattern.compile("(?i)\\bfetch\\s+(first|next)\\b\\s*(\\d+|#\\{|\\$\\{)")     // ansi/of：fetch next 10 rows
+    };
+
+    /**
+     * 危险 SQL 模式（预编译，避免每次请求重复 Pattern.compile）。
+     */
+    private static final Pattern[] DANGEROUS_SQL_PATTERNS = {
+            Pattern.compile("EXEC\\s+XP_", Pattern.CASE_INSENSITIVE),          // SQL Server系统存储过程
+            Pattern.compile("EXEC\\s+SP_", Pattern.CASE_INSENSITIVE),          // SQL Server系统存储过程
+            Pattern.compile("XP_CMDSHELL", Pattern.CASE_INSENSITIVE),          // SQL Server命令执行
+            Pattern.compile("INTO\\s+OUTFILE", Pattern.CASE_INSENSITIVE),      // MySQL文件写入
+            Pattern.compile("INTO\\s+DUMPFILE", Pattern.CASE_INSENSITIVE),     // MySQL文件写入
+            Pattern.compile("LOAD_FILE", Pattern.CASE_INSENSITIVE)             // MySQL文件读取
+    };
+
     public JdbcStatement(BaseDataHandleMapper baseMapper) {
         this.baseMapper = baseMapper;
+        // 批量 DML 与预览路径复用 Mapper 路径的 SqlSource 缓存，避免每次重新解析动态标签
+        this.myBatisConfiguration.setDefaultScriptingLanguage(CachedXmlLanguageDriver.class);
     }
 
     @Override
@@ -149,7 +178,7 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
             if (SqlExceptionUtils.isTimeout(e)) {
                 throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
             }
-            throw new CustomException(ErrorStatusEnum.API_SQL_ERROR.getCode(), "插入操作失败：" + e.getMessage());
+            throw new CustomException(ErrorStatusEnum.API_SQL_ERROR.getCode(), "插入操作失败，请检查参数或SQL是否正确");
         } finally {
             JdbcDataSourceRouter.remove();
         }
@@ -193,7 +222,7 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
             if (SqlExceptionUtils.isTimeout(e)) {
                 throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
             }
-            throw new CustomException(ErrorStatusEnum.API_SQL_ERROR.getCode(), "更新操作失败" + e.getMessage());
+            throw new CustomException(ErrorStatusEnum.API_SQL_ERROR.getCode(), "更新操作失败，请检查参数或SQL是否正确");
         } finally {
             JdbcDataSourceRouter.remove();
         }
@@ -497,19 +526,98 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
         }
     }
 
+    /**
+     * 判断 SQL 是否已自带分页。
+     * <p>
+     * 先剥离字符串字面量与注释再做关键字匹配：列名、别名、字面量（如 {@code '%limit 3%'}）
+     * 不再触发误判；无法可靠解析（引号不闭合等）时按"未分页"处理，
+     * 交由 PageHelper 与驱动行数上限兜底，宁可多套一层分页也不放行全量查询。
+     *
+     * @param sql 原始 SQL
+     * @return true 表示已自带分页，无需再套 PageHelper
+     */
     private boolean checkPage(String sql) {
-        String[] patterns = {
-            "(?i)limit.*?\\d",      // mysql,tidb
-            "(?i)offset.*?\\d",     // postgres, sqlserver2012+
-            "(?i)ROWNUM.*?\\d"      // oracle
-        };
-
-        for (String pattern : patterns) {
-            if (Pattern.compile(pattern).matcher(sql).find()) {
+        String cleaned = stripCommentsAndLiterals(sql);
+        if (cleaned == null) {
+            return false;
+        }
+        for (Pattern pattern : PAGE_CLAUSE_PATTERNS) {
+            if (pattern.matcher(cleaned).find()) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * 剥离字符串字面量、反引号标识符与注释，保留可用于关键字匹配的 SQL 骨架。
+     * <p>
+     * 说明：{@code #{}} / {@code ${}} 占位符保持原样（不当作注释），否则
+     * {@code limit #{size}} 这类分页写法会被漏判。
+     *
+     * @param sql 原始 SQL
+     * @return 清理后的 SQL；引号未闭合等无法解析的情况返回 null
+     */
+    private String stripCommentsAndLiterals(String sql) {
+        if (sql == null) {
+            return null;
+        }
+        StringBuilder out = new StringBuilder(sql.length());
+        int length = sql.length();
+        int i = 0;
+        while (i < length) {
+            char c = sql.charAt(i);
+            // 1) 字符串/标识符
+            if (c == '\'' || c == '"' || c == '`') {
+                char quote = c;
+                i++;
+                boolean closed = false;
+                while (i < length) {
+                    char ch = sql.charAt(i);
+                    if (ch == '\\' && quote != '`') {
+                        i += 2;
+                        continue;
+                    }
+                    if (ch == quote) {
+                        // '' 与 "" 是标准转义写法
+                        if (quote != '`' && i + 1 < length && sql.charAt(i + 1) == quote) {
+                            i += 2;
+                            continue;
+                        }
+                        i++;
+                        closed = true;
+                        break;
+                    }
+                    i++;
+                }
+                if (!closed) {
+                    return null;
+                }
+                out.append(' ');
+                continue;
+            }
+            // 2) -- 行注释
+            if (c == '-' && i + 1 < length && sql.charAt(i + 1) == '-') {
+                while (i < length && sql.charAt(i) != '\n') {
+                    i++;
+                }
+                out.append(' ');
+                continue;
+            }
+            // 3) /* */ 块注释
+            if (c == '/' && i + 1 < length && sql.charAt(i + 1) == '*') {
+                i += 2;
+                while (i + 1 < length && !(sql.charAt(i) == '*' && sql.charAt(i + 1) == '/')) {
+                    i++;
+                }
+                i = Math.min(i + 2, length);
+                out.append(' ');
+                continue;
+            }
+            out.append(c);
+            i++;
+        }
+        return out.toString();
     }
 
     /**
@@ -521,41 +629,32 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
             throw new IllegalArgumentException("SQL语句不能为空");
         }
 
-        String upperSql = sql.toUpperCase();
-
-        // 1. 检查是否包含多条语句
-        if (sql.contains(";") && !upperSql.contains("BEGIN") && !upperSql.contains("DECLARE")) {
-            // 检查是否是注释后的分号
-            String[] statements = sql.split(";");
-            if (statements.length > 1) {
-                for (String stmt : statements) {
-                    String trimmed = stmt.trim();
-                    if (!trimmed.isEmpty() && !trimmed.startsWith("--") && !trimmed.startsWith("/*")) {
-                        log.warn("检测到可能的多语句SQL: {}", truncateSql(sql));
+        // 1. 多语句检测：仅告警（危险语句由执行层的语句类型白名单拦截）
+        if (sql.contains(";")) {
+            String upperSql = sql.toUpperCase();
+            if (!upperSql.contains("BEGIN") && !upperSql.contains("DECLARE")) {
+                String[] statements = sql.split(";");
+                if (statements.length > 1) {
+                    for (String stmt : statements) {
+                        String trimmed = stmt.trim();
+                        if (!trimmed.isEmpty() && !trimmed.startsWith("--") && !trimmed.startsWith("/*")) {
+                            log.warn("检测到可能的多语句SQL: {}", truncateSql(sql));
+                        }
                     }
                 }
             }
         }
 
-        // 2. 检查危险的系统命令
-        String[] dangerousPatterns = {
-            "EXEC\\s+XP_",          // SQL Server系统存储过程
-            "EXEC\\s+SP_",          // SQL Server系统存储过程
-            "XP_CMDSHELL",          // SQL Server命令执行
-            "INTO\\s+OUTFILE",      // MySQL文件写入
-            "INTO\\s+DUMPFILE",     // MySQL文件写入
-            "LOAD_FILE",            // MySQL文件读取
-        };
-
-        for (String pattern : dangerousPatterns) {
-            if (Pattern.compile(pattern, Pattern.CASE_INSENSITIVE).matcher(upperSql).find()) {
-                log.error("检测到危险SQL模式: {}, SQL: {}", pattern, truncateSql(sql));
+        // 2. 危险模式：预编译正则，仅命中时才记录 SQL 片段
+        for (Pattern pattern : DANGEROUS_SQL_PATTERNS) {
+            if (pattern.matcher(sql).find()) {
+                log.error("检测到危险SQL模式: {}, SQL: {}", pattern.pattern(), truncateSql(sql));
                 throw new IllegalArgumentException("SQL包含不允许的操作");
             }
         }
 
         // 3. SQL长度限制（防止超长SQL导致问题）
-        if (sql.length() > 50000) {
+        if (sql.length() > MAX_SQL_LENGTH) {
             throw new IllegalArgumentException("SQL语句长度超过限制: " + sql.length());
         }
     }

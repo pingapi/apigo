@@ -15,6 +15,7 @@
  */
 package cn.crabc.core.datasource.mapper;
 
+import cn.crabc.core.datasource.util.CachedXmlLanguageDriver;
 import org.apache.ibatis.annotations.*;
 
 import java.util.LinkedHashMap;
@@ -34,6 +35,8 @@ public interface BaseDataHandleMapper {
      * @param params
      * @return
      */
+    // @Lang 让 ProviderSqlSource 使用带 SqlSource 缓存的解析器，避免每请求重新解析动态标签
+    @Lang(CachedXmlLanguageDriver.class)
     @SelectProvider(type = BaseSelectProvider.class, method = "executeQuery")
     @ResultType(LinkedHashMap.class)
     @Options(timeout = 30)  // 超时时间
@@ -44,6 +47,7 @@ public interface BaseDataHandleMapper {
      * @param params
      * @return
      */
+    @Lang(CachedXmlLanguageDriver.class)
     @InsertProvider(type = BaseSelectProvider.class, method = "executeInsert")
     @Options(timeout = 60)
     Integer executeInsert(Map<String, Object> params);
@@ -53,6 +57,7 @@ public interface BaseDataHandleMapper {
      * @param params
      * @return
      */
+    @Lang(CachedXmlLanguageDriver.class)
     @UpdateProvider(type = BaseSelectProvider.class, method = "executeUpdate")
     @Options(timeout = 30)
     Integer executeUpdate(Map<String, Object> params);
@@ -62,6 +67,7 @@ public interface BaseDataHandleMapper {
      * @param params
      * @return
      */
+    @Lang(CachedXmlLanguageDriver.class)
     @UpdateProvider(type = BaseSelectProvider.class, method = "executeDelete")
     @Options(timeout = 30)
     Integer executeDelete(Map<String, Object> params);

@@ -6,6 +6,7 @@ import cn.crabc.core.app.service.core.IBaseDataService;
 import cn.crabc.core.app.util.SQLUtil;
 import cn.crabc.core.datasource.constant.BaseConstant;
 import cn.crabc.core.datasource.driver.DataSourceManager;
+import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
 import cn.crabc.core.spi.StatementMapper;
 import cn.crabc.core.spi.bean.BaseDataSource;
@@ -21,6 +22,15 @@ import java.util.*;
  */
 @Service
 public class BaseDataServiceImpl implements IBaseDataService {
+
+    /**
+     * 允许执行的语句类型。
+     * <p>
+     * SQL2API 只承载查询与数据变更；DDL（drop/truncate/alter/create）、存储过程调用
+     * （call/exec）、会话设置（set）等一律拒绝。此前这些语句会落到"查询"分支被服务端执行，
+     * 等价于任意登录用户拿到了数据源的 DDL 权限。
+     */
+    private static final Set<String> ALLOWED_SQL_TYPES = Set.of("select", "with", "insert", "update", "delete");
 
     @Autowired
     private DataSourceManager dataSourceManager;
@@ -89,6 +99,10 @@ public class BaseDataServiceImpl implements IBaseDataService {
 
         String executeSql = statements.isEmpty() ? sql : statements.get(0);
         String sqlType = SQLUtil.getOperateType(executeSql).toLowerCase();
+        if (!ALLOWED_SQL_TYPES.contains(sqlType)) {
+            throw new CustomException(ErrorStatusEnum.FORBID_OPERATE.getCode(),
+                    "仅支持 select/insert/update/delete 语句，禁止执行 DDL 或其它命令：" + sqlType);
+        }
         switch (sqlType) {
             case "insert":
                 return statementMapper.insert(datasourceId, schema, executeSql, params);

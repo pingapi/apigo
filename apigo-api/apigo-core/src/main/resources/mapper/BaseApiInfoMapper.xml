@@ -38,8 +38,21 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="devType !=null and devType !=''">
                 and i.api_status =#{devType}
             </if>
+            <if test="createBy !=null and createBy !=''">
+                and i.create_by =#{createBy}
+            </if>
         </where>
         ORDER BY i.release_time desc
+    </select>
+
+    <select id="countOwnedReleasedApis" resultType="java.lang.Integer">
+        select count(1) from base_api_info
+        where api_status = 'release'
+          and create_by = #{userId}
+          and api_id in
+        <foreach collection="apiIds" item="apiId" open="(" separator="," close=")">
+            #{apiId}
+        </foreach>
     </select>
 
     <select id="selectApiGroup" resultType="cn.crabc.core.app.entity.vo.ApiComboBoxVO">
@@ -352,7 +365,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </update>
 
     <delete id="deleteApiInfo">
-        DELETE FROM base_api_info where api_id =#{apiId} and create_by =#{userId}
+        DELETE FROM base_api_info where api_id =#{apiId}
+        <!-- userId 为空表示管理员跨租户删除，不加归属条件 -->
+        <if test="userId != null and userId != ''">
+            and create_by =#{userId}
+        </if>
     </delete>
 
     <select id="countApi" resultType="java.lang.Integer">

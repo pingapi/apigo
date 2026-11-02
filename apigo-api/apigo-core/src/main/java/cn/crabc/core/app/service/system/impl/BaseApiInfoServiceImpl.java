@@ -16,6 +16,7 @@ import cn.crabc.core.app.mapper.BaseAppMapper;
 import cn.crabc.core.app.service.system.IBaseApiInfoService;
 import cn.crabc.core.datasource.constant.BaseConstant;
 import cn.crabc.core.datasource.util.PageInfo;
+import cn.crabc.core.app.util.ResourceOwnerGuard;
 import cn.crabc.core.app.util.UserThreadLocal;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
@@ -34,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -43,6 +45,12 @@ import java.util.stream.Collectors;
  */
 @Service
 public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
+
+    /**
+     * 允许的鉴权类型；与运行时 {@code AuthInterceptor} 的严格匹配保持一致，
+     * 未知值在保存/发布期即被拒绝，避免运行时 fail-open。
+     */
+    private static final Set<String> ALLOWED_AUTH_TYPES = Set.of("none", "app_code", "app_key", "app_secret");
 
     @Autowired
     private BaseApiInfoMapper apiInfoMapper;
@@ -61,6 +69,8 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
     private ApiRateLimitService apiRateLimitService;
     @Autowired
     private DataPluginConfigValidator dataPluginConfigValidator;
+    @Autowired
+    private ResourceOwnerGuard ownerGuard;
 
 
     @Override
@@ -129,13 +139,13 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
     @Override
     public PageInfo<BaseApiInfo> getApiPage(String apiName, String devType, int pageNum, int pageSize) {
         PageHelper.startPage(pageNum, pageSize);
-        List<BaseApiInfo> list = apiInfoMapper.selectList(apiName, devType);
+        List<BaseApiInfo> list = apiInfoMapper.selectList(apiName, devType, ownerGuard.ownerScope());
         return new PageInfo<>(list, pageNum, pageSize);
     }
 
     @Override
     public List<BaseApiInfo> getApiList(String apiName) {
-        return apiInfoMapper.selectList(apiName, null);
+        return apiInfoMapper.selectList(apiName, null, ownerGuard.ownerScope());
     }
 
     @Override
@@ -156,10 +166,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
 
     @Override
     public ApiRateLimitVO getRateLimit(Long apiId) {
-        BaseApiInfo apiInfo = apiInfoMapper.selectApiById(apiId);
-        if (apiInfo == null) {
-            throw new CustomException(ErrorStatusEnum.API_NOT_FOUNT.getCode(), ErrorStatusEnum.API_NOT_FOUNT.getMassage());
-        }
+        BaseApiInfo apiInfo = ownerGuard.assertApi(apiId);
         ApiRateLimitVO result = new ApiRateLimitVO();
         result.setApiId(apiInfo.getApiId());
         result.setApiName(apiInfo.getApiName());
@@ -175,10 +182,8 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         if (param == null || param.getApiId() == null) {
             throw new CustomException(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(), "接口ID不能为空");
         }
+        ownerGuard.assertApi(param.getApiId());
         BaseApiInfo oldApi = getApiForCacheInvalidation(param.getApiId());
-        if (oldApi == null) {
-            throw new CustomException(ErrorStatusEnum.API_NOT_FOUNT.getCode(), ErrorStatusEnum.API_NOT_FOUNT.getMassage());
-        }
         BaseApiInfo apiInfo = new BaseApiInfo();
         apiInfo.setApiId(param.getApiId());
         apiInfo.setUpdateTime(new Date());
@@ -202,11 +207,9 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
 
     @Override
     public ApiInfoVO getApiInfo(Long apiId) {
+        // 详情包含 sql_script 等敏感内容，必须校验归属
+        BaseApiInfo baseApiInfo = ownerGuard.assertApi(apiId);
         ApiInfoVO result = new ApiInfoVO();
-        BaseApiInfo baseApiInfo = apiInfoMapper.selectApiById(apiId);
-        if (baseApiInfo == null) {
-            return result;
-        }
         fillTransactionDefault(baseApiInfo);
         if (ApiStateEnum.RELEASE.getName().equals(baseApiInfo.getApiStatus()) && hasDraft(baseApiInfo)) {
             result = buildApiInfoVO(readDraftContent(baseApiInfo.getDraftContent()), true);
@@ -238,6 +241,11 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         Date date = new Date();
         BaseApiInfo api = params.getBaseInfo();
         BaseApiSql sql = params.getSqlInfo();
+        // 不允许把接口挂到他人（或已删除）的数据源上
+        this.assertDatasourceAccessible(sql == null ? null : sql.getDatasourceId());
+        this.validateAuthType(api);
+        // 新建接口必须显式声明鉴权类型，避免运行时对空值做模糊判断
+        this.fillAuthTypeDefault(api);
         api.setApiStatus(ApiStateEnum.EDIT.getName());
         api.setEnabled(0);
         api.setApiType("SQL");
@@ -266,10 +274,10 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         validatePluginConfig(params.getBaseInfo());
         validateScriptTimeout(params.getBaseInfo());
         Long apiId = params.getBaseInfo().getApiId();
-        Integer count = apiInfoMapper.countApi(apiId);
-        if (count == 0) {
-            throw new CustomException(ErrorStatusEnum.API_NOT_FOUNT.getCode(), ErrorStatusEnum.API_NOT_FOUNT.getMassage());
-        }
+        ownerGuard.assertApi(apiId);
+        this.assertDatasourceAccessible(params.getSqlInfo() == null ? null : params.getSqlInfo().getDatasourceId());
+        // 局部更新未传 authType 时不做默认填充，避免把已配置的鉴权改成"无认证"
+        this.validateAuthType(params.getBaseInfo());
         BaseApiInfo previousApi = getApiForCacheInvalidation(apiId);
         if (ApiStateEnum.RELEASE.getName().equals(previousApi.getApiStatus())) {
             saveDraftContent(apiId, params, previousApi);
@@ -300,10 +308,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
 
     @Override
     public Integer updateApiState(Long apiId, String status, Integer enabled) {
-        Integer count = apiInfoMapper.countApi(apiId);
-        if (count == 0) {
-            throw new CustomException(ErrorStatusEnum.API_NOT_FOUNT.getCode(), ErrorStatusEnum.API_NOT_FOUNT.getMassage());
-        }
+        ownerGuard.assertApi(apiId);
         BaseApiInfo previousApi = getApiForCacheInvalidation(apiId);
         BaseApiInfo baseApiInfo = new BaseApiInfo();
         baseApiInfo.setApiId(apiId);
@@ -323,8 +328,10 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Integer deleteApi(Long apiId, String userId) {
+        ownerGuard.assertApi(apiId);
         BaseApiInfo previousApi = getApiForCacheInvalidation(apiId);
-        Integer result = apiInfoMapper.deleteApiInfo(apiId, userId);
+        // 管理员传 null 表示不限归属，普通用户由 SQL 再兜一层 create_by
+        Integer result = apiInfoMapper.deleteApiInfo(apiId, ownerGuard.ownerScope());
         invalidateApiCache(previousApi);
         return result;
     }
@@ -333,10 +340,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
     @Transactional(rollbackFor = Exception.class)
     public Long apiPublish(ApiInfoParam apiInfoParam) {
         Long apiId = apiInfoParam.getBaseInfo().getApiId();
-        BaseApiInfo oldApiInfo = apiInfoMapper.selectApiById(apiId);
-        if (oldApiInfo == null) {
-            throw new CustomException(ErrorStatusEnum.API_NOT_FOUNT.getCode(), ErrorStatusEnum.API_NOT_FOUNT.getMassage());
-        }
+        BaseApiInfo oldApiInfo = ownerGuard.assertApi(apiId);
         BaseApiInfo previousApi = copyApiInfo(oldApiInfo);
         boolean publishDraft = ApiStateEnum.RELEASE.getName().equals(oldApiInfo.getApiStatus()) && hasDraft(oldApiInfo);
         ApiInfoParam publishParam = publishDraft ? readDraftContent(oldApiInfo.getDraftContent()) : apiInfoParam;
@@ -360,6 +364,8 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         }
         fillTransactionDefault(api);
         fillScriptTimeoutDefault(api);
+        this.assertDatasourceAccessible(api.getDatasourceId());
+        this.validateAuthType(api);
         apiInfoMapper.updateApiInfo(api);
         if (publishDraft) {
             apiParamMapper.delete(apiId);
@@ -373,16 +379,20 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
 
     @Override
     public PageInfo getNotChooseApi(Long appId, Integer pageNum, Integer pageSize) {
-        //PageHelper.startPage(pageNum, pageSize);
-        List<ApiComboBoxVO> allApi = apiInfoMapper.selectApiApp(null);
+        // 候选列表只能来自当前用户自己的已发布接口，避免泄露他人接口名与路径
+        ownerGuard.assertApp(appId);
+        List<ApiComboBoxVO> allApi = apiInfoMapper.selectApiGroup(null, ownerGuard.ownerScope()).stream()
+                .filter(api -> ApiStateEnum.RELEASE.getName().equals(api.getApiStatus()))
+                .collect(Collectors.toList());
         List<ApiComboBoxVO> appApis = apiInfoMapper.selectApiApp(appId);
-        allApi.removeAll(appApis);
+        Set<Long> boundApiIds = appApis.stream().map(ApiComboBoxVO::getApiId).collect(Collectors.toSet());
+        allApi.removeIf(api -> boundApiIds.contains(api.getApiId()));
         return new PageInfo<>(allApi, pageNum, pageSize);
     }
 
     @Override
     public PageInfo getChooseApi(Long appId, Integer pageNum, Integer pageSize) {
-        //PageHelper.startPage(pageNum, pageSize);
+        ownerGuard.assertApp(appId);
         List<ApiComboBoxVO> list = apiInfoMapper.selectApiApp(appId);
         return new PageInfo<>(list, pageNum, pageSize);
     }
@@ -390,6 +400,9 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Integer addChooseApi(BaseAppApi appApi) {
+        // 应用与接口都必须归属当前用户，否则等于跨租户越权绑定
+        ownerGuard.assertApp(appApi.getAppId());
+        ownerGuard.assertApisOwnedAndReleased(appApi.getApiIds());
         String userId = UserThreadLocal.getUserId();
         baseAppApiMapper.delete(appApi.getAppId(), userId);
 
@@ -413,6 +426,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
 
     @Override
     public Integer destroyApiInfo(Long apiId) {
+        ownerGuard.assertApi(apiId);
         String userId = UserThreadLocal.getUserId();
         BaseApiInfo previousApi = getApiForCacheInvalidation(apiId);
 
@@ -620,6 +634,51 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
     private void fillTransactionDefault(BaseApiInfoVO apiInfo) {
         if (apiInfo != null && apiInfo.getTransactionEnabled() == null) {
             apiInfo.setTransactionEnabled(0);
+        }
+    }
+
+    /**
+     * 接口只能绑定自己（或管理员）的数据源：防止把 SQL 指向他人库。
+     *
+     * @param datasourceId 数据源ID，允许为空（新建未选数据源）
+     */
+    private void assertDatasourceAccessible(Integer datasourceId) {
+        if (datasourceId == null) {
+            return;
+        }
+        ownerGuard.assertDataSource(datasourceId);
+    }
+
+    /**
+     * 鉴权类型校验与归一：历史别名（code/secret）保存时顺手改写为新值，存量数据逐步收敛。
+     *
+     * @param api 接口基本信息（authType 为空时跳过，由调用方决定是否填充默认值）
+     */
+    private void validateAuthType(BaseApiInfo api) {
+        if (api == null || api.getAuthType() == null || api.getAuthType().isBlank()) {
+            return;
+        }
+        String normalized = api.getAuthType().trim().toLowerCase();
+        normalized = switch (normalized) {
+            case "code" -> "app_code";
+            case "secret" -> "app_secret";
+            default -> normalized;
+        };
+        if (!ALLOWED_AUTH_TYPES.contains(normalized)) {
+            throw new CustomException(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(),
+                    "不支持的鉴权类型：" + api.getAuthType() + "，可选 none / app_code / app_key / app_secret");
+        }
+        api.setAuthType(normalized);
+    }
+
+    /**
+     * 新建接口未选择鉴权类型时显式落成 none（无认证），保持既有产品语义。
+     *
+     * @param api 接口基本信息
+     */
+    private void fillAuthTypeDefault(BaseApiInfo api) {
+        if (api != null && (api.getAuthType() == null || api.getAuthType().isBlank())) {
+            api.setAuthType("none");
         }
     }
 

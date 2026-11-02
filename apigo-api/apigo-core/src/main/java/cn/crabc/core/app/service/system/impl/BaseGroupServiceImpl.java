@@ -7,6 +7,9 @@ import cn.crabc.core.app.entity.vo.BaseGroupVO;
 import cn.crabc.core.app.mapper.BaseApiInfoMapper;
 import cn.crabc.core.app.mapper.BaseGroupMapper;
 import cn.crabc.core.app.service.system.IBaseGroupService;
+import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.datasource.enums.ErrorStatusEnum;
+import cn.crabc.core.datasource.exception.CustomException;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -39,13 +42,13 @@ public class BaseGroupServiceImpl implements IBaseGroupService {
     @Override
     public Integer updateGroup(BaseGroup group, String userId) {
         BaseGroup baseGroup = baseGroupMapper.selectOne(group.getGroupId());
-        if (baseGroup == null){
-            new RuntimeException("分组不存在");
+        if (baseGroup == null) {
+            throw new CustomException(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(), "分组不存在");
         }
-        if (!userId.equals(baseGroup.getCreateBy())){
-            new RuntimeException("非法操作");
+        if (!UserThreadLocal.isAdmin() && !userId.equals(baseGroup.getCreateBy())) {
+            throw new CustomException(ErrorStatusEnum.FORBID_OPERATE.getCode(), "无权操作他人的分组");
         }
-        group.setCreateBy(userId);
+        // 编辑不应改写归属：createBy 由创建时确定
         group.setUpdateTime(new Date());
         return baseGroupMapper.update(group);
     }
@@ -53,11 +56,11 @@ public class BaseGroupServiceImpl implements IBaseGroupService {
     @Override
     public Integer delteGroup(Integer groupId, String userId) {
         BaseGroup baseGroup = baseGroupMapper.selectOne(groupId);
-        if (baseGroup == null){
-            new RuntimeException("分组不存在");
+        if (baseGroup == null) {
+            throw new CustomException(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(), "分组不存在");
         }
-        if (!userId.equals(baseGroup.getCreateBy())){
-            new RuntimeException("非法操作");
+        if (!UserThreadLocal.isAdmin() && !userId.equals(baseGroup.getCreateBy())) {
+            throw new CustomException(ErrorStatusEnum.FORBID_OPERATE.getCode(), "无权操作他人的分组");
         }
         return baseGroupMapper.delete(groupId);
     }

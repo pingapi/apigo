@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,10 +33,22 @@ class McpTokenFilterTest {
 
         assertEquals(3, tokens.size());
         assertEquals("workbuddy", tokens.get(TOKEN).name());
-        assertEquals(McpTokenScope.READ_WRITE, tokens.get(TOKEN).scope());
+        // 未声明作用域时默认只读：写权限必须显式声明，避免"配了令牌就等于拿到管理面"
+        assertEquals(McpTokenScope.READ_ONLY, tokens.get(TOKEN).scope());
         assertEquals("token-2", tokens.get("sk-2").name());
         assertEquals("报表", tokens.get("sk-3").name());
         assertEquals(McpTokenScope.READ_ONLY, tokens.get("sk-3").scope());
+    }
+
+    @Test
+    @DisplayName("token 解析：历史泄露的默认令牌被拒绝")
+    void parseTokensRevoked() {
+        Map<String, McpToken> tokens = McpTokenFilter.parseTokens(
+                "sk-*****|legacy , sk-new|fresh|readwrite");
+
+        assertEquals(1, tokens.size());
+        assertFalse(tokens.containsKey("sk-*****"), "历史公开默认令牌必须无条件拒绝");
+        assertEquals(McpTokenScope.READ_WRITE, tokens.get("sk-new").scope());
     }
 
     @Test
@@ -169,7 +182,7 @@ class McpTokenFilterTest {
     @DisplayName("只读令牌统计用于启动提示")
     void tokenCount() {
         McpTokenFilter filter = new McpTokenFilter(McpTokenFilter.parseTokens(
-                "a|rw , b|ro|readonly , c|ro2|readonly"));
+                "a|rw|readwrite , b|ro|readonly , c|ro2|readonly"));
         assertEquals(3, filter.tokenCount());
         assertEquals(2, filter.readOnlyTokenCount());
     }

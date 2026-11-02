@@ -1,6 +1,7 @@
 package cn.crabc.core.datasource.driver.jdbc;
 
 import cn.crabc.core.datasource.config.JdbcDataSourceRouter;
+import cn.crabc.core.datasource.util.DataSourceLocks;
 import cn.crabc.core.spi.DataSourceDriver;
 import cn.crabc.core.spi.bean.BaseDataSource;
 import com.alibaba.druid.pool.DruidDataSource;
@@ -13,6 +14,7 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 默认通用方法实现类
@@ -23,6 +25,16 @@ public abstract class DefaultDataSourceDriver implements DataSourceDriver {
     private static final Logger log = LoggerFactory.getLogger(DefaultDataSourceDriver.class);
     private static final String DUCKDB = "duckdb";
 
+    /**
+     * 动态连接池默认上限：2 会让"元数据浏览 + 并发查询"直接排队，按常见数据源规模取 10。
+     */
+    private static final int DEFAULT_MAX_POOL_SIZE = 10;
+    private static final int MIN_POOL_SIZE = 1;
+    private static final int MAX_POOL_SIZE = 50;
+    private static final long DEFAULT_CONNECTION_TIMEOUT_MS = TimeUnit.SECONDS.toMillis(30L);
+    private static final long MIN_CONNECTION_TIMEOUT_MS = TimeUnit.SECONDS.toMillis(1L);
+    private static final long MAX_CONNECTION_TIMEOUT_MS = TimeUnit.SECONDS.toMillis(60L);
+
     @Override
     public String getName() {
         return "jdbc";
@@ -30,67 +42,63 @@ public abstract class DefaultDataSourceDriver implements DataSourceDriver {
 
     @Override
     public String test(BaseDataSource baseDataSource) {
-        Connection connection = null;
         DataSource dataSource = null;
         try {
             dataSource = createDataSource(baseDataSource, true);
-            connection = dataSource.getConnection();
-
+            // 只要拿到连接即视为连通；连接由 try-with-resources 关闭，避免 finally 里 close 抛错导致临时池泄漏
+            try (Connection ignored = dataSource.getConnection()) {
+                return "1";
+            }
         } catch (Exception e) {
             Throwable cause = e.getCause();
             log.error("数据库测试异常：{}", e.getMessage());
             return cause == null ? e.getMessage() : cause.getLocalizedMessage();
-        }finally {
-            if (connection != null) {
-                try {
-                    connection.close();
-                } catch (SQLException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-            if (dataSource != null) {
-                closeDataSource(dataSource);
-            }
+        } finally {
+            closeQuietly(dataSource);
         }
-        return "1";
     }
 
     @Override
     public void init(BaseDataSource ds) {
         String datasourceId = ds.getDatasourceId().toString();
-        DataSource oldDataSource = JdbcDataSourceRouter.exist(datasourceId) ? 
-                                 JdbcDataSourceRouter.getDataSource(datasourceId) : null;
-
-        DataSource dataSource = createDataSource(ds, false);
-        
-        // 连接池预热
+        // 同一数据源的"建池-预热-替换-关旧池"必须串行，否则并发刷新会互相覆盖导致整池泄漏
+        ReentrantLock lock = DataSourceLocks.of(datasourceId);
+        DataSource oldDataSource = null;
+        DataSource newDataSource = null;
         boolean initSuccess = false;
-        try (Connection conn = dataSource.getConnection()) {
-            if (conn.isValid(1)) {
-                log.debug("数据源初始化成功.");
-                initSuccess = true;
-            } else {
-                log.error("数据源初始化失败.");
-            }
-        } catch (SQLException e) {
-            log.error("Failed to warm up DataSource. Shutting down.", e);
-        }
-        
-        // 仅在初始化成功时才添加到路由池
-        if (initSuccess) {
-            JdbcDataSourceRouter.setDataSource(datasourceId, dataSource);
-            
-            // 关闭旧数据源
-            if (oldDataSource != null){
-                if (oldDataSource instanceof DruidDataSource) {
-                    ((DruidDataSource) oldDataSource).close();
-                } else if (oldDataSource instanceof HikariDataSource) {
-                    ((HikariDataSource) oldDataSource).close();
+        lock.lock();
+        try {
+            oldDataSource = JdbcDataSourceRouter.exist(datasourceId)
+                    ? JdbcDataSourceRouter.getDataSource(datasourceId) : null;
+            newDataSource = createDataSource(ds, false);
+
+            // 连接池预热
+            try (Connection conn = newDataSource.getConnection()) {
+                if (conn.isValid(1)) {
+                    log.debug("数据源初始化成功.");
+                    initSuccess = true;
+                } else {
+                    log.error("数据源初始化失败.");
                 }
+            } catch (SQLException e) {
+                log.error("Failed to warm up DataSource. Shutting down.", e);
             }
-        } else {
-            // 初始化失败，立即关闭新数据源，不添加到路由池
-            closeDataSource(dataSource);
+
+            // 仅在初始化成功时才替换路由池中的实例
+            if (initSuccess) {
+                JdbcDataSourceRouter.setDataSource(datasourceId, newDataSource);
+                // 所有权已转移给路由池，本方法不再负责关闭
+                newDataSource = null;
+            }
+        } finally {
+            lock.unlock();
+            // 初始化失败：关闭新建的池；已成功替换时 newDataSource 为 null，不会误关
+            closeQuietly(newDataSource);
+        }
+
+        if (initSuccess) {
+            // 关旧池放在锁外：close 可能阻塞，不能拖住其它刷新与查询
+            closeQuietly(oldDataSource);
         }
     }
 
@@ -126,39 +134,34 @@ public abstract class DefaultDataSourceDriver implements DataSourceDriver {
             dataSource.setInitializationFailTimeout(1);
             dataSource.setConnectionTimeout(2000);
         } else {
-            if (ds.getMinIdle() != null) {
-                dataSource.setMinimumIdle(ds.getMinIdle());
-            }else{
-                dataSource.setMinimumIdle(1);
-            }
-            if (ds.getMaxActive() != null) {
-                dataSource.setMaximumPoolSize(ds.getMaxActive());
-            }else{
-                dataSource.setMaximumPoolSize(2);
-            }
-            if (ds.getMaxLifetime() != null) {
-                dataSource.setMaxLifetime(ds.getMaxLifetime());
-            }else{
-                dataSource.setMaxLifetime(TimeUnit.MINUTES.toMillis(15L));
-            }
-            if (ds.getIdleTimeout() != null) {
-                dataSource.setIdleTimeout(ds.getIdleTimeout());
-            }else{
-                // 设置空闲连接超时时间，默认10分钟
-                dataSource.setIdleTimeout(TimeUnit.MINUTES.toMillis(10L));
-            }
-            if (ds.getConnectTimeout() != null) {
-                dataSource.setConnectionTimeout(ds.getConnectTimeout());
-            }else{
-                // 设置连接超时时间，默认30秒
-                dataSource.setConnectionTimeout(TimeUnit.SECONDS.toMillis(30L));
-            }
+            // 参数统一钳制：用户配置越界时按安全区间落库，避免 Hikari 归一化成意外值
+            int maxPoolSize = clamp(ds.getMaxActive() != null ? ds.getMaxActive() : DEFAULT_MAX_POOL_SIZE,
+                    MIN_POOL_SIZE, MAX_POOL_SIZE);
+            int minIdle = clamp(ds.getMinIdle() != null ? ds.getMinIdle() : 1, 0, maxPoolSize);
+            dataSource.setMaximumPoolSize(maxPoolSize);
+            dataSource.setMinimumIdle(minIdle);
+
+            long maxLifetime = clampNonZero(ds.getMaxLifetime() != null ? ds.getMaxLifetime()
+                    : TimeUnit.MINUTES.toMillis(15L), TimeUnit.SECONDS.toMillis(30L), TimeUnit.HOURS.toMillis(1L));
+            dataSource.setMaxLifetime(maxLifetime);
+
+            long idleTimeout = clampNonZero(ds.getIdleTimeout() != null ? ds.getIdleTimeout()
+                    : TimeUnit.MINUTES.toMillis(10L), TimeUnit.SECONDS.toMillis(10L), TimeUnit.HOURS.toMillis(1L));
+            dataSource.setIdleTimeout(idleTimeout);
+
+            long connectTimeout = clamp(ds.getConnectTimeout() != null ? ds.getConnectTimeout()
+                    : DEFAULT_CONNECTION_TIMEOUT_MS, MIN_CONNECTION_TIMEOUT_MS, MAX_CONNECTION_TIMEOUT_MS);
+            dataSource.setConnectionTimeout(connectTimeout);
+
             if (ds.getKeepaliveTime() != null && ds.getKeepaliveTime() != 0) {
-                dataSource.setKeepaliveTime(ds.getKeepaliveTime());
+                dataSource.setKeepaliveTime(clampNonZero(ds.getKeepaliveTime(),
+                        TimeUnit.SECONDS.toMillis(30L), TimeUnit.MINUTES.toMillis(30L)));
             }else{
                 dataSource.setKeepaliveTime(TimeUnit.MINUTES.toMillis(2L));
             }
             dataSource.setLeakDetectionThreshold(TimeUnit.MINUTES.toMillis(2L));
+            // 池名带上数据源ID，监控/线程转储时可直接定位是哪个数据源
+            dataSource.setPoolName("apigo-ds-" + (ds.getDatasourceId() == null ? "unknown" : ds.getDatasourceId()));
 
             if ("oracle".equalsIgnoreCase(ds.getDatasourceType())) {
                 // Oracle连接测试查询
@@ -217,5 +220,37 @@ public abstract class DefaultDataSourceDriver implements DataSourceDriver {
         } else if (dataSource instanceof HikariDataSource hikariDataSource) {
             hikariDataSource.close();
         }
+    }
+
+    /**
+     * 关闭数据源并吞掉异常：清理路径不能因为 close 失败而漏掉后续释放。
+     */
+    private void closeQuietly(DataSource dataSource) {
+        if (dataSource == null) {
+            return;
+        }
+        try {
+            closeDataSource(dataSource);
+        } catch (Exception e) {
+            log.warn("关闭数据源失败：{}", e.getMessage(), e);
+        }
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.min(Math.max(value, min), max);
+    }
+
+    private static long clamp(long value, long min, long max) {
+        return Math.min(Math.max(value, min), max);
+    }
+
+    /**
+     * 0 在 Hikari 中表示"禁用"，保留原语义；非 0 才钳制到合法区间。
+     */
+    private static long clampNonZero(long value, long min, long max) {
+        if (value == 0) {
+            return 0;
+        }
+        return clamp(value, min, max);
     }
 }

@@ -41,7 +41,7 @@ COMMENT ON COLUMN base_api_info.api_id IS '自增主键';
 COMMENT ON COLUMN base_api_info.api_path IS 'API路径';
 COMMENT ON COLUMN base_api_info.api_type IS 'API类型：sql、table';
 COMMENT ON COLUMN base_api_info.api_method IS '请求方式 get、post、put、delete、patch';
-COMMENT ON COLUMN base_api_info.auth_type IS '授权类型：none、code、secret';
+COMMENT ON COLUMN base_api_info.auth_type IS '授权类型：none、app_code、app_key、app_secret';
 COMMENT ON COLUMN base_api_info.enabled IS '开放启用 1/0';
 COMMENT ON COLUMN base_api_info.api_status IS 'API状态：编辑edit、审批audit、发布release、销毁destroy';
 COMMENT ON COLUMN base_api_info.group_id IS '分组ID';
@@ -172,7 +172,7 @@ ALTER SEQUENCE base_app_api_id_seq RESTART WITH 1000;
 
 -- 创建索引
 CREATE INDEX idx_api_id ON base_app_api(api_id);
-CREATE INDEX idx_app_api ON base_app_api(app_id, api_id);
+CREATE UNIQUE INDEX uk_app_api ON base_app_api(app_id, api_id);
 
 
 CREATE TABLE base_datasource (

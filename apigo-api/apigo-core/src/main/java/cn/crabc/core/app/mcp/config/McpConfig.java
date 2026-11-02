@@ -32,7 +32,7 @@ public class McpConfig {
 
     private static final Logger log = LoggerFactory.getLogger(McpConfig.class);
 
-    @Value("${crabc.mcp.enabled:true}")
+    @Value("${crabc.mcp.enabled:false}")
     private boolean enabled;
 
     @Value("${crabc.mcp.token:}")
@@ -55,14 +55,15 @@ public class McpConfig {
         }
 
         Map<String, McpToken> tokenIndex = McpTokenFilter.parseTokens(rawTokens);
-        McpTokenFilter filter = new McpTokenFilter(tokenIndex);
         if (tokenIndex.isEmpty()) {
-            log.error("crabc.mcp.enabled=true 但未配置访问令牌：MCP 端点 {} 将拒绝全部请求（fail-closed）。"
+            log.error("crabc.mcp.enabled=true 但未配置有效访问令牌：MCP 端点 {} 拒绝全部请求（fail-closed）。"
                     + "请通过环境变量 MCP_TOKEN 注入，格式 token|名称|readonly，或显式设置 crabc.mcp.enabled=false", mcpEndpoint);
-        } else {
-            log.info("MCP Server 已启用：端点={}, 令牌数量={}, 只读令牌数量={}",
-                    mcpEndpoint, filter.tokenCount(), filter.readOnlyTokenCount());
+            registration.setFilter(McpTokenFilter.denyAll());
+            return registration;
         }
+        McpTokenFilter filter = new McpTokenFilter(tokenIndex);
+        log.info("MCP Server 已启用：端点={}, 令牌数量={}, 只读令牌数量={}",
+                mcpEndpoint, filter.tokenCount(), filter.readOnlyTokenCount());
         registration.setFilter(filter);
         return registration;
     }

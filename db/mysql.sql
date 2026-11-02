@@ -9,7 +9,7 @@ CREATE TABLE `base_api_info` (
                                  `api_path` varchar(512)  DEFAULT NULL COMMENT 'API路径',
                                  `api_type` varchar(30)  DEFAULT NULL COMMENT 'API类型：sql、table',
                                  `api_method` varchar(30)  DEFAULT NULL COMMENT '请求方式 get、post、put、delete、aptch',
-                                 `auth_type` varchar(50)  DEFAULT NULL COMMENT '授权类型：none、code、secret',
+                                 `auth_type` varchar(50)  DEFAULT NULL COMMENT '授权类型：none、app_code、app_key、app_secret',
                                  `enabled` int DEFAULT NULL COMMENT '开放启用 1/0',
                                  `api_status` varchar(50)  DEFAULT NULL COMMENT 'API状态：编辑edit、审批audit、发布release、销毁destroy',
                                  `group_id` int  DEFAULT NULL COMMENT '分组ID',
@@ -96,7 +96,7 @@ CREATE TABLE `base_app_api` (
                                 `create_time` datetime DEFAULT NULL,
                                 PRIMARY KEY (`id`),
                                 KEY `idx_api_id` (`api_id`),
-                                KEY `idx_app_api` (`app_id`, `api_id`)
+                                UNIQUE KEY `uk_app_api` (`app_id`, `api_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1000 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='应用与API授权关系';
 
 CREATE TABLE `base_datasource` (

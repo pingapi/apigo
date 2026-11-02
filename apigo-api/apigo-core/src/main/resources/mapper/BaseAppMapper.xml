@@ -22,6 +22,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="appName !=null and appName !=''">
                 app_name like concat('%',#{appName},'%')
             </if>
+            <if test="createBy !=null and createBy !=''">
+                and create_by =#{createBy}
+            </if>
         </where>
         order by create_time desc
     </select>

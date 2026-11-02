@@ -2,6 +2,7 @@ package cn.crabc.core.app.mapper;
 
 import cn.crabc.core.app.entity.BaseApp;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
@@ -15,9 +16,12 @@ public interface BaseAppMapper {
 
     /**
      * 应用列表
+     * @param appName 名称关键字
+     * @param createBy 归属过滤，null 表示不限（管理员）
      * @return
      */
-    List<BaseApp> selectList(String appName);
+    List<BaseApp> selectList(@Param("appName") String appName,
+                             @Param("createBy") String createBy);
 
     /**
      * 应用和API的关系

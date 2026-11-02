@@ -4,6 +4,16 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.crabc.core.app.mapper.BaseApiLogMapper">
 
+    <!--
+      数据权限：普通用户只能看到自己创建的接口产生的日志。
+      createBy 由服务端按登录身份写入（ApiLogController），前端传入会被覆盖。
+    -->
+    <sql id="ownerScope">
+        <if test="createBy !=null and createBy !=''">
+            and api_id in (select api_id from base_api_info where create_by = #{createBy})
+        </if>
+    </sql>
+
     <select id="selectList" resultType="cn.crabc.core.app.entity.BaseApiLog">
         SELECT
             log_id,
@@ -48,6 +58,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                     </otherwise>
                 </choose>
             </if>
+            <include refid="ownerScope" />
         </where>
         order by log_id desc
     </select>
@@ -88,7 +99,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <if test="queryParam != null and queryParam !=''">query_param,</if>
         <if test="requestBody != null and requestBody != ''">request_body,</if>
         <if test="responseBody != null and responseBody != ''">response_body,</if>
-        <if test="bodySize != null and bodySize != ''">body_size,</if>
+        <if test="bodySize != null">body_size,</if>
         <if test="requestStatus != null and requestStatus != ''">request_status,</if>
         <if test="responseCode != null">response_code,</if>
         cost_time,request_time,response_time
@@ -103,7 +114,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <if test="queryParam != null and queryParam !=''">#{queryParam},</if>
         <if test="requestBody != null and requestBody != ''">#{requestBody},</if>
         <if test="responseBody != null and responseBody != ''">#{responseBody},</if>
-        <if test="bodySize != null and bodySize != ''">#{bodySize},</if>
+        <if test="bodySize != null">#{bodySize},</if>
         <if test="requestStatus != null and requestStatus != ''">#{requestStatus},</if>
         <if test="responseCode != null">#{responseCode},</if>
         #{costTime},#{requestTime},#{responseTime}
@@ -175,6 +186,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                     </otherwise>
                 </choose>
             </if>
+            <include refid="ownerScope" />
         </where>
     </sql>
 
@@ -303,4 +315,35 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         ORDER BY count DESC
         LIMIT 10
     </select>
+
+    <!-- 过期日志分批清理：MySQL 不支持 IN 子查询里的 LIMIT，用 JOIN 形式；其余库走通用写法 -->
+    <delete id="deleteBefore" databaseId="mysql">
+        DELETE t FROM base_api_log t
+        INNER JOIN (
+            SELECT log_id FROM base_api_log
+            WHERE request_time &lt;= CAST(#{endTime} AS DATETIME)
+            ORDER BY log_id
+            LIMIT #{limit}
+        ) s ON t.log_id = s.log_id
+    </delete>
+
+    <delete id="deleteBefore" databaseId="postgresql">
+        DELETE FROM base_api_log
+        WHERE log_id IN (
+            SELECT log_id FROM base_api_log
+            WHERE request_time &lt;= CAST(#{endTime} AS TIMESTAMP)
+            ORDER BY log_id
+            LIMIT #{limit}
+        )
+    </delete>
+
+    <delete id="deleteBefore">
+        DELETE FROM base_api_log
+        WHERE log_id IN (
+            SELECT log_id FROM base_api_log
+            WHERE request_time &lt;= #{endTime}
+            ORDER BY log_id
+            LIMIT #{limit}
+        )
+    </delete>
 </mapper>

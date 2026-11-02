@@ -1,7 +1,7 @@
 package cn.crabc.core.app.mcp.tools;
 
 import cn.crabc.core.app.entity.BaseDatasource;
-import cn.crabc.core.app.mcp.support.DatasourceGuard;
+import cn.crabc.core.app.support.DatasourceGuard;
 import cn.crabc.core.app.mcp.support.McpToolSupport;
 import cn.crabc.core.app.service.system.IBaseDataSourceService;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
@@ -182,9 +182,13 @@ public class DataSourceTools {
             // 新传入的类型必须落在白名单内。
             String type = isBlank(datasourceType) ? current.getDatasourceType() : guard.requireSupportedType(datasourceType);
             // 仅校验本次新提交的连接串；未变更的连接串沿用库中原值，避免历史配置被误判
-            String newJdbcUrl = isBlank(jdbcUrl) && isBlank(host)
-                    ? current.getJdbcUrl()
-                    : guard.validateJdbcUrl(type, support.buildJdbcUrl(type, host, port, databaseName, jdbcUrl));
+            String newJdbcUrl;
+            if (isBlank(jdbcUrl) && isBlank(host)) {
+                newJdbcUrl = current.getJdbcUrl();
+            } else {
+                newJdbcUrl = support.buildJdbcUrl(type, host, port, databaseName, jdbcUrl);
+                guard.validateForManagement(type, newJdbcUrl);
+            }
 
             // 密码：不传时沿用库里的 Base64 原值；库里为空则要求显式传入，避免 decode(null)
             String encodedPassword;
@@ -242,8 +246,8 @@ public class DataSourceTools {
                                            String host, String port, String databaseName, String username,
                                            String password, String remarks, String jdbcUrl) {
         String type = guard.requireSupportedType(support.requireText(datasourceType, "datasourceType"));
-        String resolvedUrl = guard.validateJdbcUrl(type,
-                support.buildJdbcUrl(type, host, port, databaseName, jdbcUrl));
+        String resolvedUrl = support.buildJdbcUrl(type, host, port, databaseName, jdbcUrl);
+        guard.validateForManagement(type, resolvedUrl);
 
         BaseDatasource dataSource = new BaseDatasource();
         dataSource.setDatasourceId(datasourceId);

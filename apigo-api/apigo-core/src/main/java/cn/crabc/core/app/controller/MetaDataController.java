@@ -1,16 +1,15 @@
 package cn.crabc.core.app.controller;
 
 import cn.crabc.core.app.entity.BaseDatasource;
+import cn.crabc.core.app.service.core.MetaDataQueryService;
 import cn.crabc.core.app.service.system.IBaseDataSourceService;
+import cn.crabc.core.app.util.ResourceOwnerGuard;
 import cn.crabc.core.app.util.Result;
 import cn.crabc.core.app.util.SQLUtil;
-import cn.crabc.core.datasource.constant.BaseConstant;
-import cn.crabc.core.datasource.driver.DataSourceManager;
-import cn.crabc.core.spi.MetaDataMapper;
+import cn.crabc.core.datasource.enums.ErrorStatusEnum;
+import cn.crabc.core.datasource.exception.CustomException;
 import cn.crabc.core.spi.bean.Column;
-import cn.crabc.core.spi.bean.Table;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -29,9 +28,11 @@ import java.util.stream.Collectors;
 public class MetaDataController {
 
     @Autowired
-    private DataSourceManager dataSourceManager;
-    @Autowired
     private IBaseDataSourceService baseDataSourceService;
+    @Autowired
+    private ResourceOwnerGuard ownerGuard;
+    @Autowired
+    private MetaDataQueryService metaDataQueryService;
 
     /**
      * 数据源列表
@@ -46,52 +47,39 @@ public class MetaDataController {
         return Result.success(listMap);
     }
 
-    //@Cacheable(cacheNames = "schemaCache", cacheManager = "metaDataManager", key = "#datasourceId")
+    // 归属校验必须发生在缓存查询之前：缓存放在 MetaDataQueryService（独立 Bean），
+    // 若与校验写在同一方法里，缓存命中时方法体不执行，校验会被绕过
     @GetMapping("/schemas")
     public Result getSchemas(@RequestParam("datasourceId") String datasourceId,String datasourceType,  String catalog) {
-        MetaDataMapper metaData = dataSourceManager.getMetaData(datasourceId);
-        List schemas;
-        if (BaseConstant.CATALOG_DATA_SOURCE.contains(datasourceType)){
-            schemas = metaData.getCatalogs(datasourceId);
-        }else{
-            schemas = metaData.getSchemas(datasourceId, catalog);
-        }
-        return Result.success(schemas);
+        requireOwnedDatasource(datasourceId);
+        return Result.success(metaDataQueryService.getSchemas(datasourceId, datasourceType, catalog));
     }
 
-    @Cacheable(cacheNames = "tableCache", cacheManager = "metaDataManager", key = "#datasourceId+'_'+#schema")
     @GetMapping("/tables")
     public Result getTables(@RequestParam("datasourceId") String datasourceId, @RequestParam("schema") String schema,String datasourceType) {
-        MetaDataMapper metaData = dataSourceManager.getMetaData(datasourceId);
-        List<Table> tables;
-        if (BaseConstant.CATALOG_DATA_SOURCE.contains(datasourceType)){
-            tables = metaData.getTables(datasourceId, schema, null);
-        }else{
-            tables = metaData.getTables(datasourceId, null, schema);
-        }
-        return Result.success(tables);
+        requireOwnedDatasource(datasourceId);
+        return Result.success(metaDataQueryService.getTables(datasourceId, schema, datasourceType));
     }
 
-    //@Cacheable(cacheNames = "columnsCache", cacheManager = "metaDataManager", key = "#datasourceId+'_'+#schema+'_'+#table")
     @GetMapping("/columns")
     public Result getColumns(@RequestParam("datasourceId") String datasourceId, @RequestParam("schema") String schema, @RequestParam("table") String table, String datasourceType) {
-        return Result.success(this.getColumnsList(datasourceId, schema, table, datasourceType));
+        requireOwnedDatasource(datasourceId);
+        return Result.success(metaDataQueryService.getColumns(datasourceId, schema, table, datasourceType));
     }
 
     /**
-     * 字段列表
-     * @return
+     * 元数据只能查看自己的数据源：否则可遍历他人库的 schema/表/字段结构。
+     *
+     * @param datasourceId 数据源ID（字符串）
      */
-    private List<Column> getColumnsList(String datasourceId, String schema, String table, String datasourceType) {
-        MetaDataMapper metaData = dataSourceManager.getMetaData(datasourceId);
-        List<Column> columns;
-        if (BaseConstant.CATALOG_DATA_SOURCE.contains(datasourceType)){
-            columns = metaData.getColumns(datasourceId, schema, null, table);
-        }else{
-            columns = metaData.getColumns(datasourceId, null, schema, table);
+    private void requireOwnedDatasource(String datasourceId) {
+        try {
+            ownerGuard.assertDataSource(Integer.valueOf(datasourceId.trim()));
+        } catch (NumberFormatException e) {
+            throw new CustomException(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(), "数据源ID不合法：" + datasourceId);
         }
-        return columns;
     }
+
     /**
      * 脚本模版
      * @param datasourceId
@@ -101,6 +89,9 @@ public class MetaDataController {
      */
     @GetMapping("/script")
     public Result getScript(String datasourceId, String schema, String table,String datasourceType) {
+        if (datasourceId != null && !datasourceId.isBlank()) {
+            requireOwnedDatasource(datasourceId);
+        }
         List<String> columnName = new ArrayList<>();
         if (table == null || "".equals(table)) {
             table = "t_user";
@@ -109,7 +100,7 @@ public class MetaDataController {
             columnName.add("create_time");
             columnName.add("create_by");
         }else{
-            List<Column> columns = this.getColumnsList(datasourceId, schema, table, datasourceType);
+            List<Column> columns = metaDataQueryService.getColumns(datasourceId, schema, table, datasourceType);
             columnName = columns.stream().map(Column::getColumnName).collect(Collectors.toList());
         }
         return Result.success(getSqlTemplate(columnName, table));

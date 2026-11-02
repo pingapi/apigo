@@ -4,6 +4,7 @@ import cn.crabc.core.app.entity.BaseGroup;
 import cn.crabc.core.app.entity.vo.BaseGroupVO;
 import cn.crabc.core.app.entity.vo.GroupApiVO;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
@@ -41,7 +42,7 @@ public interface BaseGroupMapper {
      * 查询分组列表
      * @param userId
      */
-    List<BaseGroupVO> selectList(String userId);
+    List<BaseGroupVO> selectList(@Param("userId") String userId);
 
     /**
      * 查询详情

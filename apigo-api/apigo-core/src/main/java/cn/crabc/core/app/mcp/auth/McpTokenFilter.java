@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * MCP 端点鉴权过滤器。
@@ -112,10 +113,18 @@ public class McpTokenFilter implements Filter {
     }
 
     /**
+     * 历史版本随源码分发过的默认令牌，已公开泄露，必须无条件拒绝。
+     */
+    private static final Set<String> REVOKED_TOKENS = Set.of("sk-*****");
+
+    /**
      * 解析逗号分隔的 token 配置。
      * <p>
      * 单项格式：{@code token} 或 {@code token|名称} 或 {@code token|名称|作用域}。
-     * 作用域取 {@code readonly} / {@code readwrite}（默认 readwrite）。
+     * 作用域取 {@code readonly} / {@code readwrite}，<b>默认 readonly</b>：
+     * 写权限必须由部署方显式声明，避免"配了令牌就等于拿到管理面"。
+     * <p>
+     * 泄露过的历史默认令牌直接丢弃，防止有部署仍沿用旧值。
      */
     public static Map<String, McpToken> parseTokens(String rawTokens) {
         Map<String, McpToken> result = new LinkedHashMap<>();
@@ -132,10 +141,15 @@ public class McpTokenFilter implements Filter {
             String[] parts = raw.split("\\|", -1);
             String token = parts[0].trim();
             String name = parts.length > 1 && !parts[1].isBlank() ? parts[1].trim() : "token-" + index;
-            McpTokenScope scope = parts.length > 2 ? McpTokenScope.parse(parts[2]) : McpTokenScope.READ_WRITE;
-            if (!token.isEmpty()) {
-                result.put(token, new McpToken(name, scope));
+            McpTokenScope scope = parts.length > 2 ? McpTokenScope.parse(parts[2]) : McpTokenScope.READ_ONLY;
+            if (token.isEmpty()) {
+                continue;
             }
+            if (REVOKED_TOKENS.contains(token)) {
+                log.error("MCP 令牌 {} 为历史公开默认值，已被拒绝；请通过 MCP_TOKEN 配置新的随机令牌", name);
+                continue;
+            }
+            result.put(token, new McpToken(name, scope));
         }
         return result;
     }

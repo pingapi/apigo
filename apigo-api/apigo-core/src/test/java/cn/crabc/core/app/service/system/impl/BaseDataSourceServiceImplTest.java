@@ -3,6 +3,7 @@ package cn.crabc.core.app.service.system.impl;
 import cn.crabc.core.app.entity.BaseDatasource;
 import cn.crabc.core.app.mapper.BaseDataSourceMapper;
 import cn.crabc.core.app.service.core.IBaseDataService;
+import cn.crabc.core.app.support.DatasourceGuard;
 import cn.crabc.core.datasource.driver.DataSourceManager;
 import cn.crabc.core.spi.bean.BaseDataSource;
 import org.junit.jupiter.api.AfterEach;
@@ -48,6 +49,8 @@ class BaseDataSourceServiceImplTest {
         ReflectionTestUtils.setField(service, "dataSourceMapper", dataSourceMapper);
         ReflectionTestUtils.setField(service, "dataSourceManager", dataSourceManager);
         ReflectionTestUtils.setField(service, "iBaseDataService", iBaseDataService);
+        // 连接串守卫：协议白名单 + 危险参数 + 禁止指向平台主库（未配置主库时只做前者）
+        ReflectionTestUtils.setField(service, "datasourceGuard", new DatasourceGuard());
     }
 
     @AfterEach

@@ -2,7 +2,7 @@ package cn.crabc.core.app.mcp.tools;
 
 import cn.crabc.core.app.entity.BaseDatasource;
 import cn.crabc.core.app.mcp.McpTestFixture;
-import cn.crabc.core.app.mcp.support.DatasourceGuard;
+import cn.crabc.core.app.support.DatasourceGuard;
 import cn.crabc.core.app.mcp.support.McpToolSupport;
 import cn.crabc.core.app.service.system.IBaseDataSourceService;
 import cn.crabc.core.app.util.UserThreadLocal;

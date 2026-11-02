@@ -6,6 +6,7 @@ import cn.crabc.core.app.entity.vo.ApiLogDailyTrendVO;
 import cn.crabc.core.app.entity.vo.ApiLogGroupCountVO;
 import cn.crabc.core.app.entity.vo.ApiLogSummaryVO;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
@@ -96,4 +97,13 @@ public interface BaseApiLogMapper {
      * @return 按request_ip分组聚合的访问量Top10
      */
     List<ApiLogGroupCountVO> selectTopIps(ApiLogParam param);
+
+    /**
+     * 分批删除指定时间之前的过期日志。
+     *
+     * @param endTime 截止时间（yyyy-MM-dd HH:mm:ss），删除 request_time &lt;= endTime 的记录
+     * @param limit   单批删除上限
+     * @return 本批删除行数
+     */
+    Integer deleteBefore(@Param("endTime") String endTime, @Param("limit") int limit);
 }

@@ -104,6 +104,14 @@ public class BaseConstant {
     public static final int MAX_SCRIPT_TIMEOUT_SECONDS = 300;
 
     /**
+     * 单次查询结果最大行数。
+     * <p>
+     * 分页路径用它作为分页大小上限，非分页路径由 {@code ScriptTimeoutInterceptor}
+     * 通过 {@code Statement.setMaxRows} 兜底，避免分页判定失误时整表结果进内存。
+     */
+    public static final int MAX_RESULT_LIMIT = 10000;
+
+    /**
      * 需要指定catalog的数据源
      */
     public static final List<String> CATALOG_DATA_SOURCE = Arrays.asList("sybase","mysql","mariadb","doris","starrocks","tidb","tdsql");

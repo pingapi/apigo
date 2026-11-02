@@ -6,6 +6,7 @@ import cn.crabc.core.app.entity.vo.PreviewVO;
 import cn.crabc.core.app.enums.ResultTypeEnum;
 import cn.crabc.core.app.service.core.IBaseDataService;
 import cn.crabc.core.app.service.system.IBaseApiInfoService;
+import cn.crabc.core.app.util.ResourceOwnerGuard;
 import cn.crabc.core.app.util.Result;
 import cn.crabc.core.datasource.constant.BaseConstant;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
@@ -41,6 +42,8 @@ public class ApiTestController {
     @Autowired
     private IBaseApiInfoService apiInfoService;
     @Autowired
+    private ResourceOwnerGuard ownerGuard;
+    @Autowired
     private JsonMapper jsonMapper;
     @Autowired
     private DataPluginExecutor dataPluginExecutor;
@@ -56,6 +59,8 @@ public class ApiTestController {
         if (api.getDatasourceId() == null) {
             return Result.error(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(), ErrorStatusEnum.PARAM_NOT_FOUNT.getMassage());
         }
+        // 预览只能跑自己的数据源：否则任意登录用户可对他人库执行任意 SQL
+        this.requireOwnedDatasource(api.getDatasourceId());
         // 运行预览与在线调用保持一致，按接口配置的脚本超时时间执行
         PreviewVO previewVO = baseDataService.sqlPreview(api.getDatasourceId(), api.getDatasourceType(),
             api.getSchemaName(), api.getSqlScript(), resolveScriptTimeout(api));
@@ -108,6 +113,9 @@ public class ApiTestController {
         if (params.getDatasourceId() == null) {
             return Result.error(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(), ErrorStatusEnum.PARAM_NOT_FOUNT.getMassage());
         }
+        // 接口与数据源都必须是当前用户的资源
+        ownerGuard.assertApi(apiId);
+        this.requireOwnedDatasource(params.getDatasourceId());
         
         // 设置默认数据源类型
         params.setDatasourceType(params.getDatasourceType() == null ? "mysql" : params.getDatasourceType());
@@ -145,6 +153,19 @@ public class ApiTestController {
                 return Result.error("测试异常，请检查参数或者SQL是否正常！" +ex.getMsg());
             }
             return Result.error("测试异常，请检查参数或者SQL是否正常！");
+        }
+    }
+
+    /**
+     * 校验测试所用数据源的归属：普通用户只能用自己创建的数据源，管理员可跨租户。
+     *
+     * @param datasourceId 数据源ID（字符串）
+     */
+    private void requireOwnedDatasource(String datasourceId) {
+        try {
+            ownerGuard.assertDataSource(Integer.valueOf(datasourceId.trim()));
+        } catch (NumberFormatException e) {
+            throw new CustomException(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(), "数据源ID不合法：" + datasourceId);
         }
     }
 

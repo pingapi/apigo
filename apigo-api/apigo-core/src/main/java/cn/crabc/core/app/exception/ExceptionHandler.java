@@ -86,8 +86,10 @@ public class ExceptionHandler {
     @org.springframework.web.bind.annotation.ExceptionHandler(value = RuntimeException.class)
     @ResponseBody
     public Result exceptionHandler(HttpServletRequest req, RuntimeException e) {
-        log.error("执行异常，请求地址：{}", req.getRequestURI(), e);
-        return Result.error(50005, "执行异常："+e.getMessage());
+        // 泛化对外文案：原始报错可能包含 host/port/表名等敏感信息，细节只进日志，用 traceId 关联排查
+        String traceId = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        log.error("执行异常，请求地址：{}，traceId：{}", req.getRequestURI(), traceId, e);
+        return Result.error(50005, "系统繁忙，请稍后重试（traceId：" + traceId + "）");
     }
 
     /**

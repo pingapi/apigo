@@ -70,14 +70,19 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
 
     /**
      * 销毁数据源
+     * <p>
+     * 入参可能是 {@code id} 或 {@code id:type:schema} 路由 key：取值与移除必须使用
+     * 同一个归一化后的数据源ID，否则会「取到池但移除不掉」，留下指向已关闭池的引用。
      */
     public static void destroy(String dataSourceId) {
-        DataSource dataSource = DataSourceManager.DATA_SOURCE_POOL_JDBC.get(getDataSourceId(dataSourceId));
+        String id = getDataSourceId(dataSourceId);
+        if (id == null) {
+            return;
+        }
+        DataSource dataSource = DataSourceManager.DATA_SOURCE_POOL_JDBC.remove(id);
         if (dataSource == null) {
             return;
         }
-        // 移除缓存
-        DataSourceManager.DATA_SOURCE_POOL_JDBC.remove(dataSourceId);
         // 关闭连接池
         if (dataSource instanceof DruidDataSource druidDataSource) {
             druidDataSource.close();

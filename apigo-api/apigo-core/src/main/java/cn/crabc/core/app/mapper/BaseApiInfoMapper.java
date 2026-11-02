@@ -20,10 +20,22 @@ public interface BaseApiInfoMapper {
     /**
      * API列表
      *
-     * @param apiName
+     * @param apiName 名称/路径关键字
+     * @param devType 状态
+     * @param createBy 归属过滤，null 表示不限（管理员）
      * @return
      */
-    List<BaseApiInfo> selectList(@Param("apiName") String apiName, @Param("devType") String devType);
+    List<BaseApiInfo> selectList(@Param("apiName") String apiName, @Param("devType") String devType,
+                                 @Param("createBy") String createBy);
+
+    /**
+     * 统计属于指定用户且已发布的接口数量，用于"应用-接口授权"绑定前的归属校验。
+     *
+     * @param apiIds 接口ID集合
+     * @param userId 归属用户
+     * @return 命中数量
+     */
+    Integer countOwnedReleasedApis(@Param("apiIds") java.util.Collection<Long> apiIds, @Param("userId") String userId);
 
     /**
      * 分组查询API信息

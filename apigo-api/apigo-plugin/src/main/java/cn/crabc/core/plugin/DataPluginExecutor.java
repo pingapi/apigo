@@ -6,7 +6,9 @@ import org.springframework.stereotype.Component;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -27,6 +29,21 @@ public class DataPluginExecutor {
 
     private static final TypeReference<Map<String, Object>> CONFIG_TYPE = new TypeReference<>() {
     };
+
+    /**
+     * 配置解析缓存：key 为完整 JSON 文本（无哈希碰撞风险），LRU 有界。
+     * 插件配置随 API 元数据缓存在每次请求重复反序列化，这里消除该开销；
+     * 解析结果只读使用（插件不修改配置 Map），可安全共享。
+     */
+    private static final int MAX_CONFIG_CACHE = 512;
+
+    private final Map<String, Map<String, Object>> configCache = Collections.synchronizedMap(
+            new LinkedHashMap<>(128, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Map<String, Object>> eldest) {
+                    return size() > MAX_CONFIG_CACHE;
+                }
+            });
 
     private final JsonMapper jsonMapper;
 
@@ -53,13 +70,16 @@ public class DataPluginExecutor {
         if (data == null || pluginConfigJson == null || pluginConfigJson.isBlank()) {
             return data;
         }
-        Map<String, Object> config;
-        try {
-            config = jsonMapper.readValue(pluginConfigJson, CONFIG_TYPE);
-        } catch (Exception e) {
-            // fail-fast：配置不可用时不得静默返回未处理数据
-            log.error("数据插件配置解析失败：{}", e.getMessage());
-            throw new DataPluginException(null, "数据插件配置不可用，请联系管理员", e);
+        Map<String, Object> config = configCache.get(pluginConfigJson);
+        if (config == null) {
+            try {
+                config = jsonMapper.readValue(pluginConfigJson, CONFIG_TYPE);
+            } catch (Exception e) {
+                // fail-fast：配置不可用时不得静默返回未处理数据
+                log.error("数据插件配置解析失败：{}", e.getMessage());
+                throw new DataPluginException(null, "数据插件配置不可用，请联系管理员", e);
+            }
+            configCache.put(pluginConfigJson, config);
         }
         if (config.isEmpty()) {
             return data;

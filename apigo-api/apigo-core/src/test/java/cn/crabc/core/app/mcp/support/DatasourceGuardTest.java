@@ -1,5 +1,6 @@
 package cn.crabc.core.app.mcp.support;
 
+import cn.crabc.core.app.support.DatasourceGuard;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
 import org.junit.jupiter.api.DisplayName;
@@ -86,6 +87,24 @@ class DatasourceGuardTest {
         assertThrows(CustomException.class, () -> guard.validateJdbcUrl("mysql", "jdbc:mysql://127.0.0.1:3306/db"));
         assertThrows(CustomException.class, () -> guard.validateJdbcUrl("mysql", "jdbc:mysql://10.1.2.3:3306/db"));
         assertDoesNotThrow(() -> guard.validateJdbcUrl("mysql", "jdbc:mysql://8.8.8.8:3306/db"));
+    }
+
+    @Test
+    @DisplayName("平台主库：禁止业务数据源指向自身，同实例其它库仍允许")
+    void blockPlatformDatabase() {
+        ReflectionTestUtils.setField(guard, "platformJdbcUrl",
+                "jdbc:mysql://127.0.0.1:3306/apigo?useSSL=false");
+
+        // host/port/database 全等 → 拒绝；localhost 与 127.0.0.1 视为同一地址
+        assertThrows(CustomException.class,
+                () -> guard.assertNotPlatformDatabase("jdbc:mysql://127.0.0.1:3306/apigo"));
+        assertThrows(CustomException.class,
+                () -> guard.assertNotPlatformDatabase("jdbc:mysql://localhost:3306/apigo?useSSL=false"));
+
+        // 同实例其它库 / 其它实例同库名 / 其它端口 → 放行（常见部署形态）
+        assertDoesNotThrow(() -> guard.assertNotPlatformDatabase("jdbc:mysql://127.0.0.1:3306/orders"));
+        assertDoesNotThrow(() -> guard.assertNotPlatformDatabase("jdbc:mysql://10.0.0.8:3306/apigo"));
+        assertDoesNotThrow(() -> guard.assertNotPlatformDatabase("jdbc:mysql://127.0.0.1:3307/apigo"));
     }
 
     @Test

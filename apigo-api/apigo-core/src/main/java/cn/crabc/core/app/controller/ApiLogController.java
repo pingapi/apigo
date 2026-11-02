@@ -2,6 +2,7 @@ package cn.crabc.core.app.controller;
 
 import cn.crabc.core.app.entity.param.ApiLogParam;
 import cn.crabc.core.app.service.system.IBaseApiLogService;
+import cn.crabc.core.app.util.UserThreadLocal;
 import cn.crabc.core.datasource.util.PageInfo;
 import cn.crabc.core.app.util.Result;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +30,7 @@ public class ApiLogController {
      */
     @PostMapping("/page")
     public Result logList(@RequestBody ApiLogParam apiLogParam) {
+        applyOwnerScope(apiLogParam);
         PageInfo page = iBaseApiLogService.page(apiLogParam);
         return Result.success(page);
     }
@@ -41,6 +43,7 @@ public class ApiLogController {
      */
     @PostMapping("/summary")
     public Result summary(@RequestBody ApiLogParam apiLogParam) {
+        applyOwnerScope(apiLogParam);
         return Result.success(iBaseApiLogService.summary(apiLogParam));
     }
 
@@ -52,6 +55,7 @@ public class ApiLogController {
      */
     @PostMapping("/dailyTrend")
     public Result dailyTrend(@RequestBody ApiLogParam apiLogParam) {
+        applyOwnerScope(apiLogParam);
         return Result.success(iBaseApiLogService.dailyTrend(apiLogParam));
     }
 
@@ -63,6 +67,7 @@ public class ApiLogController {
      */
     @PostMapping("/statusPie")
     public Result statusPie(@RequestBody ApiLogParam apiLogParam) {
+        applyOwnerScope(apiLogParam);
         return Result.success(iBaseApiLogService.statusPie(apiLogParam));
     }
 
@@ -74,6 +79,7 @@ public class ApiLogController {
      */
     @PostMapping("/topApis")
     public Result topApis(@RequestBody ApiLogParam apiLogParam) {
+        applyOwnerScope(apiLogParam);
         return Result.success(iBaseApiLogService.topApis(apiLogParam));
     }
 
@@ -85,6 +91,7 @@ public class ApiLogController {
      */
     @PostMapping("/topCostApis")
     public Result topCostApis(@RequestBody ApiLogParam apiLogParam) {
+        applyOwnerScope(apiLogParam);
         return Result.success(iBaseApiLogService.topCostApis(apiLogParam));
     }
 
@@ -96,6 +103,7 @@ public class ApiLogController {
      */
     @PostMapping("/topIps")
     public Result topIps(@RequestBody ApiLogParam apiLogParam) {
+        applyOwnerScope(apiLogParam);
         return Result.success(iBaseApiLogService.topIps(apiLogParam));
     }
 
@@ -107,6 +115,21 @@ public class ApiLogController {
      */
     @PostMapping("/statistics")
     public Result statistics(@RequestBody ApiLogParam apiLogParam) {
+        applyOwnerScope(apiLogParam);
         return Result.success(iBaseApiLogService.statistics(apiLogParam));
+    }
+
+    /**
+     * 写入数据权限范围：管理员不限归属，普通用户只能查询自己接口的日志。
+     * <p>
+     * 服务端覆盖而不是信任前端传值，避免通过伪造 createBy 读取他人日志。
+     *
+     * @param param 查询条件
+     */
+    private void applyOwnerScope(ApiLogParam param) {
+        if (param == null) {
+            return;
+        }
+        param.setCreateBy(UserThreadLocal.isAdmin() ? null : UserThreadLocal.getUserId());
     }
 }

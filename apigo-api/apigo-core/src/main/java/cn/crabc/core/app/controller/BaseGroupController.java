@@ -27,6 +27,8 @@ public class BaseGroupController {
      */
     @GetMapping("/tree")
     public Result groupTree(Long apiId){
+        // 分组树沿用"全部分组可见"的既有语义：默认分组由平台共享，
+        // 写操作（改/删）已按 create_by 做归属校验。
         List<BaseGroupVO> baseGroups = iBaseGroupService.groupTree(UserThreadLocal.getUserId(), apiId);
         return Result.success(baseGroups);
     }

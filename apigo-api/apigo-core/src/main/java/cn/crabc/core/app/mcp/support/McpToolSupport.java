@@ -37,7 +37,7 @@ public class McpToolSupport {
 
     private static final int DEFAULT_PAGE_SIZE = 10;
 
-    @Value("${crabc.mcp.user-id:1}")
+    @Value("${crabc.mcp.user-id:}")
     private String defaultUserId;
 
     @Value("${crabc.mcp.max-page-size:20}")
@@ -138,11 +138,16 @@ public class McpToolSupport {
     }
 
     /**
-     * MCP 操作归属用户，优先取配置，缺省为 admin（userId=1）。
+     * MCP 操作归属用户。
+     * <p>
+     * 必须由 {@code crabc.mcp.user-id} 显式配置：兜底成 admin 会让 MCP 直接获得
+     * 跨租户写权限，因此未配置时 fail-closed，直接拒绝工具调用。
      */
     public String userId() {
         if (defaultUserId == null || defaultUserId.isBlank()) {
-            return "1";
+            throw new CustomException(ErrorStatusEnum.FORBID_OPERATE.getCode(),
+                    "未配置 MCP 操作归属用户（crabc.mcp.user-id / 环境变量 MCP_USER_ID），"
+                            + "为避免越权，MCP 工具调用已拒绝");
         }
         return defaultUserId.trim();
     }

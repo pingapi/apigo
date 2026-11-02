@@ -45,4 +45,11 @@ public class ApiLogParam {
      * 分页大小，仅日志列表使用。
      */
     private Integer pageSize;
+
+    /**
+     * 归属过滤：由服务端按当前登录身份写入，不接受前端传入。
+     * <p>
+     * null 表示不限（管理员），非空时只统计该用户创建的接口日志。
+     */
+    private String createBy;
 }

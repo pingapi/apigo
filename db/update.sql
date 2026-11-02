@@ -35,3 +35,24 @@ ALTER TABLE base_api_log ADD INDEX idx_api_id_time (api_id, request_time);
 -- base_api_param 表新增索引
 ALTER TABLE base_api_param ADD INDEX idx_api_id (api_id);
 ALTER TABLE base_api_param ADD INDEX idx_api_id_model (api_id, param_model);
+
+-- v6.4.1 安全加固：应用-API 授权关系去重
+-- 绑定接口前已校验归属，这里保证同一条 (app_id, api_id) 只有一行，避免历史脏数据导致重复授权
+DELETE t1 FROM base_app_api t1
+INNER JOIN base_app_api t2
+WHERE t1.app_id = t2.app_id
+  AND t1.api_id = t2.api_id
+  AND t1.id > t2.id;
+-- PostgreSQL 方言
+-- DELETE FROM base_app_api a USING base_app_api b
+-- WHERE a.app_id = b.app_id AND a.api_id = b.api_id AND a.id > b.id;
+
+ALTER TABLE base_app_api ADD UNIQUE KEY uk_app_api (app_id, api_id);
+-- PostgreSQL 方言
+-- CREATE UNIQUE INDEX uk_app_api ON base_app_api (app_id, api_id);
+
+-- v6.4.2 鉴权类型归一：运行时不再对未知值放行（fail-closed）
+-- 历史别名归一为新枚举；auth_type 为空的存量数据保持原样（运行时会明确拒绝并提示补配置），
+-- 如确认要放开请按需执行：UPDATE base_api_info SET auth_type='none' WHERE auth_type IS NULL OR auth_type='';
+UPDATE base_api_info SET auth_type = 'app_code' WHERE auth_type = 'code';
+UPDATE base_api_info SET auth_type = 'app_secret' WHERE auth_type = 'secret';

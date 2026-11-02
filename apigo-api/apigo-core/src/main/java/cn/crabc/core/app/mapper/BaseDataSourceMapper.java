@@ -4,6 +4,7 @@ package cn.crabc.core.app.mapper;
 import cn.crabc.core.app.entity.BaseDatasource;
 import cn.crabc.core.spi.bean.BaseDataSource;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
@@ -20,10 +21,12 @@ public interface BaseDataSourceMapper {
     /**
      *
      * 数据源列表
-     * @param dataSourceName
+     * @param dataSourceName 名称关键字
+     * @param createBy 归属过滤，null 表示不限（管理员）
      * @return
      */
-    List<BaseDatasource> selectList(String dataSourceName);
+    List<BaseDatasource> selectList(@Param("dataSourceName") String dataSourceName,
+                                    @Param("createBy") String createBy);
     /**
      * 查询数据源详情
      * @param datasourceId

@@ -1,6 +1,7 @@
 package cn.crabc.core.datasource.driver;
 
 import cn.crabc.core.datasource.exception.CustomException;
+import cn.crabc.core.datasource.util.DataSourceLocks;
 import cn.crabc.core.spi.DataSourceDriver;
 import cn.crabc.core.spi.MetaDataMapper;
 import cn.crabc.core.spi.StatementMapper;
@@ -94,17 +95,45 @@ public class DataSourceManager {
     
     /**
      * 删除数据源驱动
+     * <p>
+     * 与建池共用数据源级锁，避免"刷新线程正在替换池"时删池出现覆盖/漏关；
+     * 兼容传入 {@code id:type:schema} 的路由 key，统一按数据源ID处理。
      *
      * @param datasourceId
      */
     public void remove(String datasourceId) {
-        DataSource dataSource = DATA_SOURCE_POOL_JDBC.get(datasourceId);
-        // 移除缓存
-        DATA_SOURCE_POOL_JDBC.remove(datasourceId);
-        if (dataSource instanceof DruidDataSource druidDataSource) {
-            druidDataSource.close();
-        } else if (dataSource instanceof HikariDataSource hikariDataSource) {
-            hikariDataSource.close();
+        if (datasourceId == null) {
+            return;
+        }
+        String id = datasourceId.split(":")[0];
+        DataSource dataSource;
+        java.util.concurrent.locks.ReentrantLock lock = DataSourceLocks.of(id);
+        lock.lock();
+        try {
+            dataSource = DATA_SOURCE_POOL_JDBC.remove(id);
+        } finally {
+            lock.unlock();
+        }
+        // 关闭动作放到锁外，避免 close 阻塞后续刷新
+        closeQuietly(dataSource);
+    }
+
+    /**
+     * 关闭数据源并吞掉异常，保证清理流程不中断。
+     */
+    private void closeQuietly(DataSource dataSource) {
+        if (dataSource == null) {
+            return;
+        }
+        try {
+            if (dataSource instanceof DruidDataSource druidDataSource) {
+                druidDataSource.close();
+            } else if (dataSource instanceof HikariDataSource hikariDataSource) {
+                hikariDataSource.close();
+            }
+        } catch (Exception e) {
+            org.slf4j.LoggerFactory.getLogger(DataSourceManager.class)
+                    .warn("关闭数据源失败：{}", e.getMessage(), e);
         }
     }
 }

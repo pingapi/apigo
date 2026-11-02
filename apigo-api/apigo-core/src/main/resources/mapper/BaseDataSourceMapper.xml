@@ -49,8 +49,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         FROM
             base_datasource
             <where>
-                <if test="datasourceName !=null and datasourceName !=''">
-                    datasource_name like concat('%',#{datasourceName},'%')
+                <if test="dataSourceName !=null and dataSourceName !=''">
+                    datasource_name like concat('%',#{dataSourceName},'%')
+                </if>
+                <if test="createBy !=null and createBy !=''">
+                    and create_by =#{createBy}
                 </if>
             </where>
         ORDER BY datasource_id DESC
