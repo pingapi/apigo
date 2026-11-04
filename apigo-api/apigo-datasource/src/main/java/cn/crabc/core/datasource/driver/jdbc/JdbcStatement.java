@@ -73,6 +73,17 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
     };
 
     /**
+     * PL/SQL 块豁免：过程体内的分号是语句块内部分隔符，不参与「多语句注入」判定。
+     * 用词边界而非 contains，避免 {@code begin_time}、{@code declare_count} 这类列名误触发豁免。
+     */
+    private static final Pattern PLSQL_BLOCK_PATTERN = Pattern.compile("(?i)\\b(BEGIN|DECLARE)\\b");
+
+    /**
+     * XML 实体（命名实体、十进制与十六进制字符引用），用于排除实体结尾的分号。
+     */
+    private static final Pattern XML_ENTITY_PATTERN = Pattern.compile("&(#\\d+|#[xX][0-9a-fA-F]+|[a-zA-Z][a-zA-Z0-9]+);");
+
+    /**
      * 危险 SQL 模式（预编译，避免每次请求重复 Pattern.compile）。
      */
     private static final Pattern[] DANGEROUS_SQL_PATTERNS = {
@@ -572,7 +583,7 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
      * @param sql 原始 SQL
      * @return 清理后的 SQL；引号未闭合等无法解析的情况返回 null
      */
-    private String stripCommentsAndLiterals(String sql) {
+    private static String stripCommentsAndLiterals(String sql) {
         if (sql == null) {
             return null;
         }
@@ -644,19 +655,8 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
         }
 
         // 1. 多语句检测：仅告警（危险语句由执行层的语句类型白名单拦截）
-        if (sql.contains(";")) {
-            String upperSql = sql.toUpperCase();
-            if (!upperSql.contains("BEGIN") && !upperSql.contains("DECLARE")) {
-                String[] statements = sql.split(";");
-                if (statements.length > 1) {
-                    for (String stmt : statements) {
-                        String trimmed = stmt.trim();
-                        if (!trimmed.isEmpty() && !trimmed.startsWith("--") && !trimmed.startsWith("/*")) {
-                            log.warn("检测到可能的多语句SQL: {}", truncateSql(sql));
-                        }
-                    }
-                }
-            }
+        if (sql.contains(";") && hasMultipleStatements(sql)) {
+            log.warn("检测到可能的多语句SQL: {}", truncateSql(sql));
         }
 
         // 2. 危险模式：预编译正则，仅命中时才记录 SQL 片段
@@ -671,6 +671,57 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
         if (sql.length() > MAX_SQL_LENGTH) {
             throw new IllegalArgumentException("SQL语句长度超过限制: " + sql.length());
         }
+    }
+
+    /**
+     * 判断 SQL 是否真的包含多条语句。
+     * <p>
+     * 直接按 {@code ';'} 切分会把三类分号算成多语句：结尾分号（{@code select 1;} 切出两段）、
+     * 字符串字面量与注释里的分号、动态脚本里的 XML 实体（{@code &lt;} {@code &gt;}）。
+     * 误报会让每个请求都打一条 WARN 并做一遍 split，这里先复用字面量/注释剥离，
+     * 再统计含实际内容的分段数：单条语句无论带不带结尾分号都只有一个分段。
+     *
+     * @param sql 原始 SQL
+     * @return true 表示存在两个及以上实际语句段
+     */
+    static boolean hasMultipleStatements(String sql) {
+        String skeleton = stripCommentsAndLiterals(sql);
+        // 引号不闭合等无法解析的脚本交由执行层报错，不在这里告警
+        if (skeleton == null || PLSQL_BLOCK_PATTERN.matcher(skeleton).find()) {
+            return false;
+        }
+        int segments = 0;
+        boolean hasContent = false;
+        for (int i = 0; i < skeleton.length(); i++) {
+            char c = skeleton.charAt(i);
+            if (c == ';') {
+                if (isXmlEntitySemicolon(skeleton, i)) {
+                    hasContent = true;
+                    continue;
+                }
+                if (hasContent) {
+                    segments++;
+                    hasContent = false;
+                }
+            } else if (!Character.isWhitespace(c)) {
+                hasContent = true;
+            }
+        }
+        if (hasContent) {
+            segments++;
+        }
+        return segments > 1;
+    }
+
+    /**
+     * 分号是否属于 XML 实体（如 {@code &lt;}）的一部分，实体结尾分号不是语句分隔符。
+     */
+    private static boolean isXmlEntitySemicolon(String sql, int semicolonIndex) {
+        int ampIndex = sql.lastIndexOf('&', semicolonIndex);
+        if (ampIndex < 0 || ampIndex < semicolonIndex - 16) {
+            return false;
+        }
+        return XML_ENTITY_PATTERN.matcher(sql.substring(ampIndex, semicolonIndex + 1)).matches();
     }
 
     /**

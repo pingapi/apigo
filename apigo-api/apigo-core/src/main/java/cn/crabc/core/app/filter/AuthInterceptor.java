@@ -13,6 +13,7 @@ import cn.crabc.core.app.util.SM3Util;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -46,19 +47,26 @@ public class AuthInterceptor implements HandlerInterceptor {
     // API开放接口前缀
     private static final String API_PRE = "/api/web/";
 
-    // 日志异步处理配置
-    private static final int BATCH_SIZE = 500; // 每次消费500条
-    private static final long CONSUME_INTERVAL_MS = 500; // 每500ms消费一次
-    private static final int MAX_QUEUE_ENTRIES = 2000; // 条数上限，防止大量小日志占满队列
+    // 日志异步处理默认参数，可被 crabc.api-log.* 覆盖
+    private static final int DEFAULT_BATCH_SIZE = 500; // 每次消费500条
+    private static final int DEFAULT_QUEUE_CAPACITY = 2000; // 条数上限，防止大量小日志占满队列
     /** 队列默认字节预算：按字节而非条数限流，避免大响应体把堆打满 */
     private static final long DEFAULT_QUEUE_BYTE_BUDGET = 32L * 1024 * 1024;
     /** 单条日志 body 上限（字符数）：超长截断后仍保留记录，而不是整条丢弃 */
     private static final int MAX_LOG_BODY_CHARS = 128 * 1024;
     /** 单条日志固定开销估算（对象头 + 字段引用等） */
     private static final long LOG_ENTRY_OVERHEAD_BYTES = 512L;
+    /** 丢弃计数上报间隔：高负载下每批一条 WARN 会把日志本身变成噪声源 */
+    private static final long DROP_REPORT_INTERVAL_MS = 10_000L;
+    /** 写入失败退避：数据库故障时不让消费线程空转 */
+    private static final long WRITE_FAILURE_BACKOFF_MS = 500L;
+    /** 关闭时等待消费线程退出的上限 */
+    private static final long CONSUMER_JOIN_TIMEOUT_MS = 2_000L;
+    /** 关闭时冲刷剩余日志的时间预算 */
+    private static final long SHUTDOWN_FLUSH_BUDGET_MS = 5_000L;
 
-    // 有界日志缓冲队列（按条数 + 字节预算双重限制，超出则丢弃）
-    private final BlockingQueue<LogEntry> logQueue = new LinkedBlockingQueue<>(MAX_QUEUE_ENTRIES);
+    // 有界日志缓冲队列（按条数 + 字节预算双重限制，超出则丢弃）；容量可配置，在 init() 中创建
+    private BlockingQueue<LogEntry> logQueue;
 
     // 当前队列占用字节数
     private final AtomicLong queuedBytes = new AtomicLong(0);
@@ -66,16 +74,29 @@ public class AuthInterceptor implements HandlerInterceptor {
     // 丢弃日志计数器
     private final AtomicInteger droppedLogCount = new AtomicInteger(0);
 
+    // 上次丢弃计数上报时间
+    private final AtomicLong lastDropReportAt = new AtomicLong(0);
+
+    // 单批落库条数
+    @Value("${crabc.api-log.batch-size:500}")
+    private int batchSize = DEFAULT_BATCH_SIZE;
+
+    // 队列条数上限
+    @Value("${crabc.api-log.queue-capacity:2000}")
+    private int queueCapacity = DEFAULT_QUEUE_CAPACITY;
+
     // 队列字节预算，可通过 crabc.api-log.queue-byte-budget 调整
     @Value("${crabc.api-log.queue-byte-budget:33554432}")
-    private long queueByteBudget;
+    private long queueByteBudget = DEFAULT_QUEUE_BYTE_BUDGET;
 
-    // 定时任务调度器
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-        Thread thread = new Thread(r, "api-log-consumer");
-        thread.setDaemon(true); //
-        return thread;
-    });
+    // 消费线程运行状态
+    private volatile boolean running;
+
+    // 日志消费线程
+    private volatile Thread consumerThread;
+
+    // 落库互斥：保证消费线程与关闭冲刷不会并发写入
+    private final Object flushLock = new Object();
 
     @Autowired
     private IBaseApiLogService iBaseApiLogService;
@@ -95,57 +116,164 @@ public class AuthInterceptor implements HandlerInterceptor {
     private ApiRateLimitService apiRateLimitService;
 
     /**
-     * 构造函数：启动日志批量消费定时任务
+     * 创建日志队列并启动消费线程。
+     * <p>
+     * 本拦截器由 {@code InterceptorConfig} 的 @Bean 方法直接 new，构造函数里读不到注入值，
+     * 因此队列容量与线程启动都放在字段注入完成之后的 {@code @PostConstruct}。
      */
-    public AuthInterceptor() {
-        // 每500ms执行一次批量消费任务
-        scheduler.scheduleAtFixedRate(this::consumeLogBatch, CONSUME_INTERVAL_MS, CONSUME_INTERVAL_MS, TimeUnit.MILLISECONDS);
+    @PostConstruct
+    public void init() {
+        if (queueCapacity <= 0) {
+            queueCapacity = DEFAULT_QUEUE_CAPACITY;
+        }
+        if (batchSize <= 0) {
+            batchSize = DEFAULT_BATCH_SIZE;
+        }
+        // 单批不能超过队列容量，否则配置写错时 drainTo 只是白跑一趟
+        batchSize = Math.min(batchSize, queueCapacity);
+        logQueue = new LinkedBlockingQueue<>(queueCapacity);
+        lastDropReportAt.set(System.currentTimeMillis());
+        running = true;
+        consumerThread = Thread.ofPlatform().daemon(true).name("api-log-consumer").unstarted(this::consumeLoop);
+        consumerThread.start();
     }
 
     /**
-     * 应用关闭时停止消费线程（ExecutorService 自 JDK 19 起支持 AutoCloseable 语义）。
+     * 应用关闭时停止消费线程，并把队列里剩余的日志同步冲刷出去。
+     * <p>
+     * 只在有限窗口内等待：消费线程仍卡在数据库里时不再追加等待，交给守护线程随 JVM 退出，
+     * 避免发布/容器重启被一次慢插入拖长。
      */
     @PreDestroy
     public void shutdown() {
-        scheduler.close();
+        running = false;
+        Thread consumer = consumerThread;
+        if (consumer != null) {
+            consumer.interrupt();
+            try {
+                consumer.join(CONSUMER_JOIN_TIMEOUT_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            if (consumer.isAlive()) {
+                log.warn("API日志消费线程未在 {} 毫秒内退出，跳过剩余日志冲刷，待写入：{} 条",
+                        CONSUMER_JOIN_TIMEOUT_MS, logQueue == null ? 0 : logQueue.size());
+                return;
+            }
+        }
+        flushRemaining();
+        reportDrops(true);
     }
 
     /**
-     * 批量消费日志队列。
+     * 关闭冲刷：消费线程已退出，逐批写空队列，超出预算则放弃剩余日志（由丢弃计数体现）。
+     */
+    private void flushRemaining() {
+        BlockingQueue<LogEntry> queue = logQueue;
+        if (queue == null) {
+            return;
+        }
+        long deadline = System.currentTimeMillis() + SHUTDOWN_FLUSH_BUDGET_MS;
+        while (!queue.isEmpty() && System.currentTimeMillis() < deadline) {
+            List<LogEntry> batch = new ArrayList<>(batchSize);
+            queue.drainTo(batch, batchSize);
+            flushBatch(batch, false);
+        }
+    }
+
+    /**
+     * 消费循环：取到第一条立刻凑批落库，成功后继续排空队列。
+     * <p>
+     * 取代原先固定 500ms 节拍的定时任务——节拍把吞吐钉死在「批大小 ÷ 节拍」，
+     * 实测约 700 行/秒，高 QPS 下八成以上日志被丢弃；同时定时任务还会让空闲关闭
+     * 多等一个完整节拍。
+     */
+    private void consumeLoop() {
+        while (running) {
+            try {
+                List<LogEntry> batch = new ArrayList<>(batchSize);
+                batch.add(logQueue.take());
+                logQueue.drainTo(batch, batchSize - 1);
+                flushBatch(batch, true);
+                reportDrops(false);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Throwable t) {
+                // 消费线程不能因单次异常退出，否则日志会静默积压到全部丢弃
+                log.error("API日志消费线程异常", t);
+            }
+        }
+    }
+
+    /**
+     * 批量落库。
      * <p>
      * 先把额度还给生产者再落库：一次慢插入不应该让新日志全部被丢弃。
+     *
+     * @param allowRequeue 失败时是否回队重试；关闭冲刷不再回队，避免拖长关闭
      */
-    private void consumeLogBatch() {
-        List<LogEntry> batch = new ArrayList<>(BATCH_SIZE);
+    private void flushBatch(List<LogEntry> batch, boolean allowRequeue) {
+        if (batch.isEmpty()) {
+            return;
+        }
+        List<BaseApiLog> logs = new ArrayList<>(batch.size());
+        long releasedBytes = 0;
+        for (LogEntry entry : batch) {
+            logs.add(entry.log);
+            releasedBytes += entry.bytes;
+        }
+        queuedBytes.addAndGet(-releasedBytes);
+
         try {
-            logQueue.drainTo(batch, BATCH_SIZE);
-
-            if (!batch.isEmpty()) {
-                List<BaseApiLog> logs = new ArrayList<>(batch.size());
-                long releasedBytes = 0;
-                for (LogEntry entry : batch) {
-                    logs.add(entry.log);
-                    releasedBytes += entry.bytes;
-                }
-                queuedBytes.addAndGet(-releasedBytes);
-
-                try {
-                    iBaseApiLogService.batchAddLog(logs);
-                    log.debug("批量插入API日志成功，数量：{}", logs.size());
-                } catch (Exception e) {
-                    log.error("批量写入API日志失败，回队一次后放弃，数量：{}", logs.size(), e);
-                    requeue(batch);
-                }
+            synchronized (flushLock) {
+                iBaseApiLogService.batchAddLog(logs);
             }
-
-            // 定期报告丢弃日志数
-            int dropped = droppedLogCount.getAndSet(0);
-            if (dropped > 0) {
-                log.warn("日志队列超出容量或字节预算，丢弃日志数：{}，当前占用：{}KB",
-                        dropped, queuedBytes.get() / 1024);
-            }
+            log.debug("批量插入API日志成功，数量：{}", logs.size());
         } catch (Exception e) {
-            log.error("批量消费日志失败", e);
+            if (!allowRequeue) {
+                droppedLogCount.addAndGet(batch.size());
+                log.error("关闭时批量写入API日志失败，丢弃日志数：{}", batch.size(), e);
+                return;
+            }
+            log.error("批量写入API日志失败，回队一次后放弃，数量：{}", logs.size(), e);
+            requeue(batch);
+            backoff();
+        }
+    }
+
+    /**
+     * 数据库异常后的可中断退避。
+     */
+    private void backoff() {
+        if (!running) {
+            // 关闭阶段被中断的插入已回队，交给冲刷流程立刻重试，别再白等一个退避窗口
+            return;
+        }
+        try {
+            TimeUnit.MILLISECONDS.sleep(WRITE_FAILURE_BACKOFF_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * 丢弃计数上报：常规路径最多每 {@value #DROP_REPORT_INTERVAL_MS} 毫秒一条，关闭时强制上报。
+     *
+     * @param force 是否跳过间隔限制
+     */
+    private void reportDrops(boolean force) {
+        long now = System.currentTimeMillis();
+        long last = lastDropReportAt.get();
+        if (!force) {
+            if (now - last < DROP_REPORT_INTERVAL_MS || !lastDropReportAt.compareAndSet(last, now)) {
+                return;
+            }
+        }
+        int dropped = droppedLogCount.getAndSet(0);
+        if (dropped > 0) {
+            log.warn("日志队列超出容量或字节预算，丢弃日志数：{}，当前占用：{}KB",
+                    dropped, queuedBytes.get() / 1024);
         }
     }
 

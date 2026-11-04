@@ -135,26 +135,46 @@ export JWT_SECRET=$(openssl rand -base64 32)
 
 - 未配置、强度不足（Base64 解码后少于 32 字节）或仍是历史泄露密钥时，应用**直接启动失败**，不会回退到任何默认值。
 - 签发与校验只使用 `JWT_SECRET` 这一个密钥：更换密钥后，此前签发的令牌全部失效，需要重新登录。
-- 本地开发可把测试密钥写入 `crabc-api/crabc-admin/src/main/resources/application-local.yml`（已被 .gitignore 忽略），无需设置环境变量。
+- 本地开发可把测试密钥写入 `apigo-api/apigo-admin/src/main/resources/application-local.yml`（已被 .gitignore 忽略），无需设置环境变量。
 
 ## Docker启动
-先执行db/dml.sql脚本，创建库表和初始化数据，建议mysql 8.0+版本
+先执行 db/mysql.sql 脚本，创建库表和初始化数据，建议 mysql 8.0+ 版本
 
-X86/AMD架构
+X86/AMD 与 ARM 使用同一镜像
 ```
 docker run -p 9377:9377 -e JWT_SECRET="$JWT_SECRET" -e DB_URL="jdbc:mysql://localhost:3306/apigo" -e DB_USER="root" -e DB_PWD="root" -d --name apigo crabc/apigo:latest
 ```
-ARM架构
+用 docker-compose 一并拉起 MySQL（数据卷为空时自动执行 db/mysql.sql 建库，口令缺失会直接报错）
 ```
-docker run -p 9377:9377 -e JWT_SECRET="$JWT_SECRET" -e DB_URL="jdbc:mysql://localhost:3306/apigo" -e DB_USER="root" -e DB_PWD="root" -d --name apigo crabc/crabc-admin:latest
+export JWT_SECRET=$(openssl rand -base64 32)
+export MYSQL_ROOT_PASSWORD=<数据库口令>
+docker compose up -d
+```
+自建镜像（先 `mvn clean package -DskipTests`，Dockerfile 默认取 `apigo-api/apigo-admin/target/apigo-admin-<版本号>.jar`）
+```
+docker build -t crabc/apigo:6.5.0 .
 ```
 访问地址：http://127.0.0.1:9377
 账号密码：admin/admin123
 
-## Windows桌面运行
-先执行db/dml.sql脚本，创建库表和初始化数据，建议mysql 8.0+版本
+## 非容器部署的 JVM 参数
+镜像里那组 JDK 25 参数在裸 `java -jar` 下不会自动生效（`UseCompactObjectHeaders` 默认是关闭的），建议显式带上：
 ```
-java -jar crabc-api.jar JWT_SECRET="$JWT_SECRET" --spring.datasource.url=jdbc:mysql://127.0.0.1:3306/crabc --spring.datasource.username=root --spring.datasource.password=root --crabc.jwt.secret=<Base64密钥>
+export JAVA_TOOL_OPTIONS="-XX:+UseCompactObjectHeaders -XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError --enable-native-access=ALL-UNNAMED"
+java -jar apigo-api/apigo-admin/target/apigo-admin-6.5.0.jar
+```
+- `UseCompactObjectHeaders`：JDK 25 正式参数（JEP 519），大量 SQL 行对象场景降低堆占用
+- `MaxRAMPercentage`：容器内按内存限额推算堆上限，避免默认只占 25% 导致大结果集 OOM
+- `ExitOnOutOfMemoryError`：OOM 后快速退出，交给编排重启，避免半死不活
+- `--enable-native-access`：JDK 24+ 收紧 JNI，duckdb 等原生驱动需要显式放行
+
+## Windows桌面运行
+先执行 db/mysql.sql 脚本，创建库表和初始化数据，建议 mysql 8.0+ 版本
+
+`JWT_SECRET` 必须由环境变量注入，写在命令行参数里不会生效：
+```
+set JWT_SECRET=<Base64密钥>
+java -jar apigo-admin-6.5.0.jar --spring.datasource.url=jdbc:mysql://127.0.0.1:3306/apigo --spring.datasource.username=root --spring.datasource.password=root
 ```
 
 ## AI 办公工具接入（MCP）

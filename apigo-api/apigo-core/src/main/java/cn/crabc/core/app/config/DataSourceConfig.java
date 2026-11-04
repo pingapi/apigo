@@ -32,6 +32,21 @@ public class DataSourceConfig {
     private String password;
 
     /**
+     * 连接泄漏回收开关：默认关闭。
+     * <p>
+     * Druid 会在启动时对 {@code removeAbandoned=true} 恒定告警，且占用超过阈值的连接会被强制回收，
+     * 长导出与新增的日志保留任务这类 >300s 的操作会被掐断。排查泄漏时再显式打开。
+     */
+    @Value("${spring.datasource.druid.remove-abandoned:false}")
+    private boolean removeAbandoned;
+
+    /**
+     * 连接判定为泄漏的占用时长（秒），仅在 {@code remove-abandoned=true} 时生效。
+     */
+    @Value("${spring.datasource.druid.remove-abandoned-timeout-seconds:300}")
+    private int removeAbandonedTimeoutSeconds;
+
+    /**
      * 默认系统数据源
      *
      * @return
@@ -56,10 +71,12 @@ public class DataSourceConfig {
         dataSource.setTestWhileIdle(true);
         dataSource.setTestOnBorrow(false);
         dataSource.setTestOnReturn(false);
-        // 连接泄漏检测配置
-        dataSource.setRemoveAbandoned(true);
-        dataSource.setRemoveAbandonedTimeout(300);
-        dataSource.setLogAbandoned(true);
+        // 连接泄漏检测：默认关闭，打开后才设置回收阈值并打印泄漏栈
+        dataSource.setRemoveAbandoned(removeAbandoned);
+        if (removeAbandoned) {
+            dataSource.setRemoveAbandonedTimeout(Math.max(1, removeAbandonedTimeoutSeconds));
+            dataSource.setLogAbandoned(true);
+        }
         JdbcDataSourceRouter dynamic = new JdbcDataSourceRouter();
         dynamic.setTargetDataSources(new HashMap<>());
         // 设置默认数据源

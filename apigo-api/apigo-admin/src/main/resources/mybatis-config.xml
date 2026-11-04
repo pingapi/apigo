@@ -8,7 +8,7 @@ PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
 		<setting name="cacheEnabled" value="true" />  <!-- 全局映射器启用缓存 -->
 		<setting name="useGeneratedKeys" value="true" />  <!-- 允许 JDBC 支持自动生成主键 -->
 		<setting name="defaultExecutorType" value="REUSE" /> <!-- 配置默认的执行器 -->
-		<setting name="logImpl" value="STDOUT_LOGGING" /> <!-- 指定 MyBatis 所用日志的具体实现 -->
+		<setting name="logImpl" value="SLF4J" />
 		<setting name="callSettersOnNulls" value="true" />
 		<setting name="mapUnderscoreToCamelCase" value="true" /><!-- 驼峰下划线映射 -->
 	</settings>

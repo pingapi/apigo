@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<configuration scan="true" scanPeriod="60 seconds" debug="false">
+<configuration scan="false" debug="false">
     <!-- 日志存放路径 -->
 	<property name="log.path" value="logs/crabc" />
 	<property name="log.pattern" value="%d{HH:mm:ss.SSS} [%thread] %-5level %logger{20} - [%method,%line] - %msg%n" />
@@ -42,17 +42,14 @@
     </appender>
 
     <!-- 系统模块日志级别控制  -->
-	<logger name="com.creabc.basebox" level="info" />
+	<logger name="cn.crabc" level="info" />
 	<!-- Spring日志级别控制  -->
 	<logger name="org.springframework" level="warn" />
 
+	<!-- 控制台 + 文件统一挂在同一个 root 上：原先写成两个 <root> 块，appender 归属不确定 -->
 	<root level="info">
 		<appender-ref ref="console" />
-	</root>
-	
-    <!--系统操作日志-->
-    <root level="info">
         <appender-ref ref="file_info" />
         <appender-ref ref="file_error" />
-    </root>
+	</root>
 </configuration>

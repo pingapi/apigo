@@ -53,10 +53,12 @@ spring:
           enabled: true             # 自动扫描 @McpTool
   datasource:
     type: com.alibaba.druid.pool.DruidDataSource
-    # 下面是本地开发默认值（明文 + 关闭 TLS），生产环境必须通过 DB_URL 覆盖为加密连接
     url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/apigo?characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${DB_USER:root}
     password: ${DB_PWD:}
+    druid:
+      remove-abandoned: false
+      remove-abandoned-timeout-seconds: 300
 # mybatis配置
 mybatis:
   # 搜索指定包别名
@@ -78,6 +80,9 @@ crabc:
     # 日志是否保存响应结果：默认关闭。大响应体会放大堆内存与 DB 写入，
     # 需要排查问题时临时打开（单条 body 仍有 128K 截断保护）
     response-body: false
+    batch-size: 500
+    queue-capacity: 2000
+    queue-byte-budget: 33554432
   mcp:
     # 默认关闭：MCP 暴露的是整个平台的管理能力（建数据源/改接口/改授权），需要时显式开启
     enabled: false
@@ -88,7 +93,7 @@ crabc:
     audit-enabled: true             # 变更类工具是否记录审计日志
     max-page-size: 20               # 工具层分页硬上限
     max-text-length: 2000           # SQL 等长文本截断长度
-    allowed-jdbc-schemes: mysql,mariadb,tdsql,tidb,doris,starrocks,postgresql,opengauss,oracle,sqlserver,dm,clickhouse,dolphindb,duckdb,sybase,db2,oceanbase
+    allowed-jdbc-schemes: mysql,mariadb,tdsql,tidb,doris,starrocks,postgresql,opengauss,oracle,sqlserver,dm,clickhouse,dolphindb,duckdb,sybase,hive,db2,oceanbase
     # true 时拒绝连接回环/内网地址
     block-internal-host: false
   # JWT 签名密钥：必须由部署环境注入（环境变量 JWT_SECRET），生成方式 openssl rand -base64 32。

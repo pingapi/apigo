@@ -64,6 +64,9 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
     @Qualifier("apiCache")
     Cache<String, ApiInfoDTO> apiInfoCache;
     @Autowired
+    @Qualifier("apiMissCache")
+    Cache<String, Boolean> apiMissCache;
+    @Autowired
     private JsonMapper jsonMapper;
     @Autowired
     private ApiRateLimitService apiRateLimitService;
@@ -94,7 +97,11 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         if (method == null || apiPath == null || apiPath.isBlank()) {
             return;
         }
-        apiInfoCache.invalidate(IBaseApiInfoService.buildCacheKey(method, apiPath));
+        String cacheKey = IBaseApiInfoService.buildCacheKey(method, apiPath);
+        apiInfoCache.invalidate(cacheKey);
+        // 负缓存必须一起清：发布前该路径被探测过（健康检查、爬虫、作者自测）会留下 miss 记录，
+        // 只清正缓存的话新接口最长要等 60s TTL 过期才能访问
+        apiMissCache.invalidate(cacheKey);
     }
 
     private void invalidateApiCache(BaseApiInfo apiInfo) {
