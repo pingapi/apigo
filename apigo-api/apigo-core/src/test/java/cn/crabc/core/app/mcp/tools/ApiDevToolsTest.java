@@ -7,14 +7,14 @@ import cn.crabc.core.app.entity.BaseDatasource;
 import cn.crabc.core.app.entity.param.ApiInfoParam;
 import cn.crabc.core.app.entity.vo.ApiInfoVO;
 import cn.crabc.core.app.mcp.McpTestFixture;
+import cn.crabc.core.app.mcp.WithMcpToken;
 import cn.crabc.core.app.service.core.IBaseDataService;
 import cn.crabc.core.app.service.system.IBaseApiInfoService;
 import cn.crabc.core.app.service.system.IBaseDataSourceService;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import cn.crabc.core.datasource.constant.BaseConstant;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -44,6 +44,7 @@ import static org.mockito.Mockito.when;
  *
  * @author yuqf
  */
+@WithMcpToken
 class ApiDevToolsTest {
 
     private IBaseApiInfoService apiInfoService;
@@ -59,12 +60,6 @@ class ApiDevToolsTest {
         tools = new ApiDevTools(apiInfoService, dataSourceService, baseDataService,
                 McpTestFixture.support(), McpTestFixture.jsonMapper());
         when(dataSourceService.getDataSource(3)).thenReturn(mysqlDatasource());
-        McpTestFixture.bindReadWriteContext();
-    }
-
-    @AfterEach
-    void tearDown() {
-        McpTestFixture.clearContext();
     }
 
     @Test
@@ -284,7 +279,7 @@ class ApiDevToolsTest {
         assertEquals("order/daily", param.getBaseInfo().getApiPath());
         assertEquals(3, param.getBaseInfo().getDatasourceId(), "未传数据源应沿用原值");
         assertEquals("release", param.getBaseInfo().getApiStatus());
-        assertNull(UserThreadLocal.get());
+        assertNull(UserContext.get());
     }
 
     @Test
@@ -376,12 +371,11 @@ class ApiDevToolsTest {
     @Test
     @DisplayName("安全：只读令牌不允许创建接口")
     void createRejectedForReadOnlyToken() {
-        McpTestFixture.bindReadOnlyContext();
-
-        CustomException ex = assertThrows(CustomException.class, () -> tools.apiCreate("接口", "t/a", "3",
-                "SELECT id FROM t_order", null, null, null, null, null, null, null, null, null));
-
-        assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
+        McpTestFixture.withReadOnlyContext(() -> {
+            CustomException ex = assertThrows(CustomException.class, () -> tools.apiCreate("接口", "t/a", "3",
+                    "SELECT id FROM t_order", null, null, null, null, null, null, null, null, null));
+            assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
+        });
         verify(apiInfoService, never()).addApiInfo(any(ApiInfoParam.class));
     }
 

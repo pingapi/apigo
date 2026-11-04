@@ -2,7 +2,7 @@ package cn.crabc.core.app.controller;
 
 import cn.crabc.core.app.entity.param.ApiLogParam;
 import cn.crabc.core.app.service.system.IBaseApiLogService;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import cn.crabc.core.datasource.util.PageInfo;
 import cn.crabc.core.app.util.Result;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -130,6 +130,6 @@ public class ApiLogController {
         if (param == null) {
             return;
         }
-        param.setCreateBy(UserThreadLocal.isAdmin() ? null : UserThreadLocal.getUserId());
+        param.setCreateBy(UserContext.isAdmin() ? null : UserContext.getUserId());
     }
 }

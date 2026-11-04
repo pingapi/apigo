@@ -10,7 +10,7 @@ import cn.crabc.core.app.util.SQLUtil;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
 import cn.crabc.core.datasource.util.PageInfo;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import cn.crabc.core.datasource.driver.DataSourceManager;
 import cn.crabc.core.datasource.driver.jdbc.DuckDbDataSource;
 import cn.crabc.core.spi.bean.BaseDataSource;
@@ -64,13 +64,15 @@ public class BaseDataSourceServiceImpl implements IBaseDataSourceService {
      */
     @PostConstruct
     public void load() {
-        Thread t = new Thread(new Runnable() {
-            @Override
-            public void run() {
+        // 预热放到独立线程，避免阻塞容器启动；用虚拟线程并对异常兜底：
+        // 旧实现裸 new Thread 没有线程名，整体失败时异常会静默丢失
+        Thread.ofVirtual().name("datasource-loader").start(() -> {
+            try {
                 init();
+            } catch (Exception e) {
+                log.error("-数据源启动加载失败，将在下次定时任务重试", e);
             }
         });
-        t.start();
     }
 
     @Override
@@ -157,7 +159,7 @@ public class BaseDataSourceServiceImpl implements IBaseDataSourceService {
     @Override
     public Integer addDataSource(BaseDatasource dataSource) {
         dataSource.setClassify("jdbc");
-        dataSource.setCreateBy(UserThreadLocal.getUserId());
+        dataSource.setCreateBy(UserContext.getUserId());
         dataSource.setCreateTime(new Date());
         dataSource.setUpdateTime(new Date());
         // 判断是否是自定义
@@ -190,7 +192,7 @@ public class BaseDataSourceServiceImpl implements IBaseDataSourceService {
         } catch (IllegalArgumentException e) {
             throw new CustomException(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(), "数据源密码必须为 Base64 编码");
         }
-        dataSource.setUpdateBy(UserThreadLocal.getUserId());
+        dataSource.setUpdateBy(UserContext.getUserId());
         dataSource.setUpdateTime(new Date());
         dataSource.setPassword(Base64.getEncoder().encodeToString(dataSource.getPassword().getBytes()));
         this.addCache(dataSource);
@@ -295,7 +297,7 @@ public class BaseDataSourceServiceImpl implements IBaseDataSourceService {
      */
     private void validateJdbcUrl(String datasourceType, String jdbcUrl) {        datasourceGuard.validateForManagement(datasourceType, jdbcUrl);
         // duckdb 是本地文件型引擎，可通过 SQL 读写服务器文件，仅允许管理员创建
-        if ("duckdb".equalsIgnoreCase(datasourceType) && !UserThreadLocal.isAdmin()) {
+        if ("duckdb".equalsIgnoreCase(datasourceType) && !UserContext.isAdmin()) {
             throw new CustomException(ErrorStatusEnum.FORBID_OPERATE.getCode(),
                     "duckdb 为本地文件型引擎，仅管理员可创建该类型数据源");
         }

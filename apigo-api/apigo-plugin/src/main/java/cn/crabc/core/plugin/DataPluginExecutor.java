@@ -1,14 +1,14 @@
 package cn.crabc.core.plugin;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -31,19 +31,18 @@ public class DataPluginExecutor {
     };
 
     /**
-     * 配置解析缓存：key 为完整 JSON 文本（无哈希碰撞风险），LRU 有界。
+     * 配置解析缓存：key 为完整 JSON 文本（无哈希碰撞风险），有界淘汰。
      * 插件配置随 API 元数据缓存在每次请求重复反序列化，这里消除该开销；
      * 解析结果只读使用（插件不修改配置 Map），可安全共享。
+     * <p>
+     * 底层为 Caffeine：读路径无全局锁，且 {@code get(key, mappingFn)} 原子加载，
+     * 替代旧的 synchronizedMap+LinkedHashMap（其 get/put 存在 check-then-act 竞态）。
      */
     private static final int MAX_CONFIG_CACHE = 512;
 
-    private final Map<String, Map<String, Object>> configCache = Collections.synchronizedMap(
-            new LinkedHashMap<>(128, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<String, Map<String, Object>> eldest) {
-                    return size() > MAX_CONFIG_CACHE;
-                }
-            });
+    private final Cache<String, Map<String, Object>> configCache = Caffeine.newBuilder()
+            .maximumSize(MAX_CONFIG_CACHE)
+            .build();
 
     private final JsonMapper jsonMapper;
 
@@ -70,17 +69,24 @@ public class DataPluginExecutor {
         if (data == null || pluginConfigJson == null || pluginConfigJson.isBlank()) {
             return data;
         }
-        Map<String, Object> config = configCache.get(pluginConfigJson);
-        if (config == null) {
+        Map<String, Object> config = configCache.get(pluginConfigJson, key -> {
             try {
-                config = jsonMapper.readValue(pluginConfigJson, CONFIG_TYPE);
+                Map<String, Object> parsed = jsonMapper.readValue(key, CONFIG_TYPE);
+                // Caffeine 的 mappingFunction 不允许返回 null（会抛 NPE 且语义晦涩），
+                // 配置为字面量 null 时按配置不可用处理，保持 fail-fast
+                if (parsed == null) {
+                    throw new DataPluginException(null, "数据插件配置为空，请联系管理员");
+                }
+                return parsed;
+            } catch (DataPluginException e) {
+                log.error("数据插件配置为空：{}", e.getMessage());
+                throw e;
             } catch (Exception e) {
                 // fail-fast：配置不可用时不得静默返回未处理数据
                 log.error("数据插件配置解析失败：{}", e.getMessage());
                 throw new DataPluginException(null, "数据插件配置不可用，请联系管理员", e);
             }
-            configCache.put(pluginConfigJson, config);
-        }
+        });
         if (config.isEmpty()) {
             return data;
         }

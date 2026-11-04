@@ -69,7 +69,6 @@ public class SysUserController {
      */
     @PostMapping("/loginout")
     public Result loginout() {
-        UserThreadLocal.remove();
         return Result.success();
     }
 
@@ -80,7 +79,7 @@ public class SysUserController {
      */
     @GetMapping("/info")
     public Result userInfo() {
-        BaseUser userInfo = iBaseUserService.getUserById(Long.parseLong(UserThreadLocal.getUserId()));
+        BaseUser userInfo = iBaseUserService.getUserById(Long.parseLong(UserContext.getUserId()));
         return Result.success(userInfo);
     }
     /**
@@ -102,7 +101,7 @@ public class SysUserController {
      */
     @PostMapping("/reset/pwd")
     public Result resetPassword(@RequestBody UserParam user){
-        BaseUser userInfo = iBaseUserService.getUserById(Long.valueOf(UserThreadLocal.getUserId()));
+        BaseUser userInfo = iBaseUserService.getUserById(Long.valueOf(UserContext.getUserId()));
         if (userInfo == null) {
             return Result.error("账号不存在!");
         }
@@ -144,7 +143,7 @@ public class SysUserController {
     public Result getPublicKey() throws Exception {
         String uuid = UUID.randomUUID().toString().replace("-", "");
         RSAUtils.RSAKeyPair rsaKeyPair = RSAUtils.getKey();
-        caffeineCache.put("priKey_" + UserThreadLocal.getUserId(), rsaKeyPair.getPrivateKey());
+        caffeineCache.put("priKey_" + UserContext.getUserId(), rsaKeyPair.getPrivateKey());
         Map<String, String> map = new HashMap(3);
         map.put("public", rsaKeyPair.getPublicKey());
         map.put("key", uuid);

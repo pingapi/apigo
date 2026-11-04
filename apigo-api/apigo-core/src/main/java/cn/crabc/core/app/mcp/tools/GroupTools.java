@@ -5,7 +5,7 @@ import cn.crabc.core.app.entity.vo.ApiComboBoxVO;
 import cn.crabc.core.app.entity.vo.BaseGroupVO;
 import cn.crabc.core.app.mcp.support.McpToolSupport;
 import cn.crabc.core.app.service.system.IBaseGroupService;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import org.springframework.ai.mcp.annotation.McpTool;
 import org.springframework.ai.mcp.annotation.McpToolParam;
 import org.springframework.stereotype.Component;
@@ -69,7 +69,7 @@ public class GroupTools {
             group.setGroupName(support.requireText(groupName, "groupName"));
             group.setParentId(parentId == null ? 0 : parentId);
             group.setGroupDesc(groupDesc);
-            group.setCreateBy(UserThreadLocal.getUserId());
+            group.setCreateBy(UserContext.getUserId());
             groupService.addGroup(group);
 
             Map<String, Object> output = McpToolSupport.newResult();

@@ -4,11 +4,11 @@ import cn.crabc.core.app.entity.BaseGroup;
 import cn.crabc.core.app.entity.vo.ApiComboBoxVO;
 import cn.crabc.core.app.entity.vo.BaseGroupVO;
 import cn.crabc.core.app.mcp.McpTestFixture;
+import cn.crabc.core.app.mcp.WithMcpToken;
 import cn.crabc.core.app.service.system.IBaseGroupService;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,6 +32,7 @@ import static org.mockito.Mockito.when;
  *
  * @author yuqf
  */
+@WithMcpToken
 class GroupToolsTest {
 
     private IBaseGroupService groupService;
@@ -41,12 +42,6 @@ class GroupToolsTest {
     void setUp() {
         groupService = mock(IBaseGroupService.class);
         tools = new GroupTools(groupService, McpTestFixture.support());
-        McpTestFixture.bindReadWriteContext();
-    }
-
-    @AfterEach
-    void tearDown() {
-        McpTestFixture.clearContext();
     }
 
     @Test
@@ -113,17 +108,16 @@ class GroupToolsTest {
         assertEquals(0, saved.getParentId());
         assertEquals("订单相关接口", saved.getGroupDesc());
         assertEquals(McpTestFixture.USER_ID, saved.getCreateBy(), "分组按 createBy 判权限，必须有归属用户");
-        assertNull(UserThreadLocal.get());
+        assertNull(UserContext.get());
     }
 
     @Test
     @DisplayName("安全：只读令牌不允许新建分组")
     void groupCreateRejectedForReadOnlyToken() {
-        McpTestFixture.bindReadOnlyContext();
-
-        CustomException ex = assertThrows(CustomException.class, () -> tools.groupCreate("订单", null, null));
-
-        assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
+        McpTestFixture.withReadOnlyContext(() -> {
+            CustomException ex = assertThrows(CustomException.class, () -> tools.groupCreate("订单", null, null));
+            assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
+        });
         verify(groupService, never()).addGroup(any(BaseGroup.class));
     }
 

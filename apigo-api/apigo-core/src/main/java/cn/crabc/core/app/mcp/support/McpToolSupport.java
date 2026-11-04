@@ -2,9 +2,11 @@ package cn.crabc.core.app.mcp.support;
 
 import cn.crabc.core.app.mcp.auth.McpAuthContext;
 import cn.crabc.core.app.mcp.auth.McpTokenScope;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
@@ -29,6 +31,8 @@ import java.util.function.Supplier;
  */
 @Component
 public class McpToolSupport {
+
+    private static final Logger log = LoggerFactory.getLogger(McpToolSupport.class);
 
     /**
      * 列表类工具返回的脱敏占位符。
@@ -56,7 +60,7 @@ public class McpToolSupport {
      * 绑定用户上下文并记录审计。
      * <p>
      * 所有 {@code @McpTool} 的业务体必须在本包装内执行：工具方法与 service 调用
-     * 在同一线程，保证 {@code UserThreadLocal.getUserId()} 可见（createBy/updateBy 有主）。
+     * 在同一线程，保证 {@code UserContext.getUserId()} 可见（createBy/updateBy 有主）。
      *
      * @param toolName 工具名
      * @param action   业务体
@@ -73,24 +77,32 @@ public class McpToolSupport {
      * @param action      业务体
      */
     public <T> T bindUser(String toolName, String argsSummary, Supplier<T> action) {
-        String userId = this.userId();
-        Map<String, Object> user = new LinkedHashMap<>(4);
-        user.put("userId", userId);
-        user.put("userName", "mcp:" + McpAuthContext.tokenName());
-        UserThreadLocal.set(user);
+        String userId;
+        try {
+            userId = this.userId();
+        } catch (RuntimeException e) {
+            // 配置缺失属于「尝试了但没有权限」，同样要留痕，便于发现误配置的调用方
+            auditRecorder.record(toolName, argsSummary, false, e.getMessage(), 0L);
+            throw e;
+        }
+        UserContext.UserPrincipal principal = new UserContext.UserPrincipal(
+                userId, "mcp:" + McpAuthContext.tokenName(), null);
 
         long start = System.currentTimeMillis();
-        try {
-            T result = action.get();
+        // 审计必须在作用域内记录：/mcp 端点没有绑定外层 UserContext 槽位，
+        // 一旦退出作用域，safeUserId() 只能取到兜底值 "0"，审计将失去可追溯性。
+        return UserContext.with(principal, () -> {
+            T result;
+            try {
+                result = action.get();
+            } catch (RuntimeException e) {
+                auditRecorder.record(toolName, argsSummary, false, e.getMessage(),
+                        System.currentTimeMillis() - start);
+                throw e;
+            }
             auditRecorder.record(toolName, argsSummary, true, null, System.currentTimeMillis() - start);
             return result;
-        } catch (RuntimeException e) {
-            auditRecorder.record(toolName, argsSummary, false, e.getMessage(), System.currentTimeMillis() - start);
-            throw e;
-        } finally {
-            // 虚拟线程会被复用，必须清理防串号
-            UserThreadLocal.remove();
-        }
+        });
     }
 
     /**
@@ -114,6 +126,12 @@ public class McpToolSupport {
         McpTokenScope scope = McpAuthContext.scope();
         if (scope == McpTokenScope.READ_WRITE) {
             return;
+        }
+        if (!McpAuthContext.isBound()) {
+            // 区分「令牌只读」与「上下文丢失」：后者说明工具执行线程不是请求线程，
+            // 需要经 MCP 传输层上下文透传身份，否则所有写操作都会被 fail-closed 拒绝。
+            log.warn("MCP 鉴权上下文在工具执行线程不可见，变更类工具 {} 已按只读拒绝；"
+                    + "请确认工具调用是否在异步线程执行并改用传输层上下文传递身份", toolName);
         }
         String message = scope == McpTokenScope.READ_ONLY
                 ? "当前 MCP 令牌为只读（scope=readonly），不允许调用变更类工具：" + toolName + "。如需执行请改用读写令牌"

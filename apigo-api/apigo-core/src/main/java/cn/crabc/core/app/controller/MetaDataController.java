@@ -123,7 +123,7 @@ public class MetaDataController {
         list.add(select);
 
         Map<String,Object> insert = new HashMap<>();
-        StringBuffer bufferSql = new StringBuffer();
+        StringBuilder bufferSql = new StringBuilder();
         bufferSql.append("insert into " +table +" values (");
         for (int i = 0; i < columnName.size(); i++) {
             if (i == columnName.size() - 1){
@@ -137,7 +137,7 @@ public class MetaDataController {
         list.add(insert);
 
         Map<String,Object> update = new HashMap<>();
-        StringBuffer updateSql = new StringBuffer();
+        StringBuilder updateSql = new StringBuilder();
         updateSql.append("update " +table +" set ");
         for (int i = 0; i < columnName.size(); i++) {
             if (i == columnName.size() - 1){

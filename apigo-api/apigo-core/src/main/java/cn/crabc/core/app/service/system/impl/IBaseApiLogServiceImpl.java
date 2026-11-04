@@ -9,7 +9,7 @@ import cn.crabc.core.app.entity.vo.ApiLogSummaryVO;
 import cn.crabc.core.app.mapper.BaseApiLogMapper;
 import cn.crabc.core.app.service.system.IBaseApiLogService;
 import cn.crabc.core.app.util.ResourceOwnerGuard;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import cn.crabc.core.datasource.util.PageInfo;
 import com.github.pagehelper.PageHelper;
 import org.slf4j.Logger;
@@ -201,7 +201,7 @@ public class IBaseApiLogServiceImpl implements IBaseApiLogService {
         if (param == null) {
             return;
         }
-        param.setCreateBy(UserThreadLocal.isAdmin() ? null : UserThreadLocal.getUserId());
+        param.setCreateBy(UserContext.isAdmin() ? null : UserContext.getUserId());
     }
 
     /**

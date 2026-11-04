@@ -49,12 +49,17 @@ cn.crabc
 ~~~
 
 ## 版本说明
-dev 分支框架SpringBoot是4.1.1，jdk-21及以上版本 \
-jdk-8 分支框架SpringBoot是2.7.x，jdk-8 
+dev 分支框架 SpringBoot 4.1.2，**要求 JDK 25（编译目标为 25，JDK 21 无法构建与运行）** \
+jdk-8 分支框架SpringBoot是2.7.x，jdk-8
+
+构建要求：
+- JDK 25（`mvn clean package -DskipTests` 会通过 maven-enforcer-plugin 校验 JDK 版本）
+- 启动必须注入 `JWT_SECRET`（`openssl rand -base64 32` 生成）
+- `apigo-spring-boot-starter` 对外发布物同样是 25 字节码，下游集成方需 JDK 25+
 
 ## 社区版压测报告
 
-> 压测工具：JMeter ｜ 部署环境：4c8g 服务器，jdk21
+> 压测工具：JMeter ｜ 部署环境：4c8g 服务器，jdk21（6.4.0 起升级到 jdk25，压测数据待更新）
 
 | 压测参数 | 值         |
 |:--|:----------|
@@ -84,8 +89,8 @@ https://www.apigo.cn
 
 ## 运行启动
 ```
-1、先执行db/dml.sql脚本，创建库表和初始化数据，支持mysql和postgresql，建议mysql 8.0+版本和postgresql 14+版本
-2、在编辑工具中运行启动 crabc-api/ AdminApplication.java
+1、先执行 db/mysql.sql（或 db/postgresql.sql）脚本，创建库表和初始化数据，建议 mysql 8.0+ 版本和 postgresql 14+ 版本
+2、在编辑工具中运行启动 apigo-api/apigo-admin 的 AdminApplication.java（JDK 25）
 ```
 访问地址：http://127.0.0.1:9377 \
 账号密码：admin/admin123
@@ -110,7 +115,7 @@ gitee: https://gitee.com/pingapi/apigo
 <dependency>
     <groupId>cn.crabc</groupId>
     <artifactId>apigo-spring-boot-starter</artifactId>
-    <version>6.4.0</version>
+    <version>6.5.0</version>
 </dependency>
 ```
 在程序启动类中添加下面注解

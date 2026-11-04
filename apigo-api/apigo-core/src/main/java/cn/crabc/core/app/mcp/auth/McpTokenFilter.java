@@ -179,11 +179,19 @@ public class McpTokenFilter implements Filter {
             return;
         }
 
-        McpAuthContext.set(identity.name(), identity.scope(), request.getRemoteAddr());
+        // ScopedValue 直接绑定：鉴权结果在进入链路前已知，作用域退出自动解绑
         try {
-            chain.doFilter(request, response);
-        } finally {
-            McpAuthContext.clear();
+            McpAuthContext.scope(
+                    new McpAuthContext.Entry(identity.name(), identity.scope(), request.getRemoteAddr()),
+                    () -> {
+                        chain.doFilter(request, response);
+                        return null;
+                    });
+        } catch (IOException | ServletException e) {
+            throw e;
+        } catch (Exception e) {
+            // 理论上 scope 不产生其它受检异常，兜底转换以保持容器错误处理语义
+            throw new ServletException(e);
         }
     }
 

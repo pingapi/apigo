@@ -109,7 +109,8 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
         int timeoutSeconds = DEFAULT_QUERY_TIMEOUT_SECONDS;
         try {
             // 1. 参数安全验证和预处理
-            Map<String, Object> paramsMap = setParams(dataSourceId, schema, sql, params);
+            Map<String, Object> paramsMap = prepareParams(dataSourceId, schema, sql, params);
+            String dataSourceKey = buildDataSourceKey(dataSourceId, schema, paramsMap);
             timeoutSeconds = resolveTimeoutSeconds(paramsMap);
 
             validateSqlSafety(sql);
@@ -131,8 +132,8 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
                 PageHelper.startPage(pageNum, pageSize, true);
             }
 
-            // 4. 执行查询
-            list = baseMapper.executeQuery(paramsMap);
+            // 4. 执行查询（数据源路由经 ScopedValue 绑定，作用域退出自动解绑）
+            list = JdbcDataSourceRouter.withKey(dataSourceKey, () -> baseMapper.executeQuery(paramsMap));
 
         } catch (Exception e) {
             Throwable cause = e.getCause();
@@ -143,6 +144,11 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
 
             boolean timeout = SqlExceptionUtils.isTimeout(e);
             if (execType == null) {
+                // 已归类的业务异常（如未配置数据源、SQL 不安全）直接向上抛，
+                // 否则错误码与可诊断文案会被改写成笼统的「查询执行失败」
+                if (e instanceof CustomException customException) {
+                    throw customException;
+                }
                 if (timeout) {
                     throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
                 }
@@ -156,8 +162,6 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
         } finally {
             // 6. 确保资源释放
             PageHelper.clearPage();
-            // 清理ThreadLocal，释放数据源key引用
-            JdbcDataSourceRouter.remove();
         }
         return new PageInfo<>(list, pageNum, pageSize);
     }
@@ -168,19 +172,21 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
         try {
             // 1. SQL安全验证
             validateSqlSafety(sql);
-            // 2. 参数处理和执行
-            Map<String, Object> paramsMap = setParams(dataSourceId, schema, sql, params);
+            // 2. 参数处理和执行（数据源路由经 ScopedValue 绑定，作用域退出自动解绑）
+            Map<String, Object> paramsMap = prepareParams(dataSourceId, schema, sql, params);
+            String dataSourceKey = buildDataSourceKey(dataSourceId, schema, paramsMap);
             timeoutSeconds = resolveTimeoutSeconds(paramsMap);
-            return baseMapper.executeInsert(paramsMap);
+            return JdbcDataSourceRouter.withKey(dataSourceKey, () -> baseMapper.executeInsert(paramsMap));
         } catch (Exception e) {
             // 3. 安全的错误处理
             log.error("SQL插入失败 - 数据源: {}, Schema: {}, 错误: {}", dataSourceId, schema, e.getMessage());
+            if (e instanceof CustomException customException) {
+                throw customException;
+            }
             if (SqlExceptionUtils.isTimeout(e)) {
                 throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
             }
             throw new CustomException(ErrorStatusEnum.API_SQL_ERROR.getCode(), "插入操作失败，请检查参数或SQL是否正确");
-        } finally {
-            JdbcDataSourceRouter.remove();
         }
     }
 
@@ -190,19 +196,21 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
         try {
             // 1. SQL安全验证
             validateSqlSafety(sql);
-            // 2. 参数处理和执行
-            Map<String, Object> paramsMap = setParams(dataSourceId, schema, sql, params);
+            // 2. 参数处理和执行（数据源路由经 ScopedValue 绑定，作用域退出自动解绑）
+            Map<String, Object> paramsMap = prepareParams(dataSourceId, schema, sql, params);
+            String dataSourceKey = buildDataSourceKey(dataSourceId, schema, paramsMap);
             timeoutSeconds = resolveTimeoutSeconds(paramsMap);
-            return baseMapper.executeDelete(paramsMap);
+            return JdbcDataSourceRouter.withKey(dataSourceKey, () -> baseMapper.executeDelete(paramsMap));
         } catch (Exception e) {
             // 3. 安全的错误处理
             log.error("SQL删除失败 - 数据源: {}, Schema: {}, 错误: {}", dataSourceId, schema, e.getMessage());
+            if (e instanceof CustomException customException) {
+                throw customException;
+            }
             if (SqlExceptionUtils.isTimeout(e)) {
                 throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
             }
             throw new CustomException(ErrorStatusEnum.API_SQL_ERROR.getCode(), "删除操作失败");
-        } finally {
-            JdbcDataSourceRouter.remove();
         }
     }
 
@@ -212,19 +220,21 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
         try {
             // 1. SQL安全验证
             validateSqlSafety(sql);
-            // 2. 参数处理和执行
-            Map<String, Object> paramsMap = setParams(dataSourceId, schema, sql, params);
+            // 2. 参数处理和执行（数据源路由经 ScopedValue 绑定，作用域退出自动解绑）
+            Map<String, Object> paramsMap = prepareParams(dataSourceId, schema, sql, params);
+            String dataSourceKey = buildDataSourceKey(dataSourceId, schema, paramsMap);
             timeoutSeconds = resolveTimeoutSeconds(paramsMap);
-            return baseMapper.executeUpdate(paramsMap);
+            return JdbcDataSourceRouter.withKey(dataSourceKey, () -> baseMapper.executeUpdate(paramsMap));
         } catch (Exception e) {
             // 3. 安全的错误处理
             log.error("SQL更新失败 - 数据源: {}, Schema: {}, 错误: {}", dataSourceId, schema, e.getMessage());
+            if (e instanceof CustomException customException) {
+                throw customException;
+            }
             if (SqlExceptionUtils.isTimeout(e)) {
                 throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
             }
             throw new CustomException(ErrorStatusEnum.API_SQL_ERROR.getCode(), "更新操作失败，请检查参数或SQL是否正确");
-        } finally {
-            JdbcDataSourceRouter.remove();
         }
     }
 
@@ -298,18 +308,16 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
             restoreAutoCommit(connection, autoCommitChanged, oldAutoCommit);
             restoreNetworkTimeout(connection, oldNetworkTimeout);
             closeQuietly(connection);
-            JdbcDataSourceRouter.remove();
         }
     }
 
     /**
-     * 单条SQL仍沿用Mapper动态数据源路由，保持原有查询/变更执行路径不变。
+     * 单条SQL的参数预处理；数据源路由不再写入 ThreadLocal，
+     * 改由调用方在 Mapper 调用处用 {@link JdbcDataSourceRouter#withKey} 绑定 ScopedValue。
      */
-    private Map<String, Object> setParams(String dataSourceId, String schema, String sql, Object params) {
+    private Map<String, Object> prepareParams(String dataSourceId, String schema, String sql, Object params) {
         Map<String, Object> paramsMap = copyParams(params);
         paramsMap.put(BaseConstant.BASE_SQL, sql);
-        dataSourceId = buildDataSourceKey(dataSourceId, schema, paramsMap);
-        JdbcDataSourceRouter.setDataSourceKey(dataSourceId);
         return paramsMap;
     }
 
@@ -379,6 +387,11 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
      * schema路由key保持和原单条SQL一致，便于JDBC连接按库/Schema执行。
      */
     private String buildDataSourceKey(String dataSourceId, String schema, Map<String, Object> paramsMap) {
+        // 空数据源标识必须显式失败：单条与批量路径都经由此处取键，避免回落到平台默认库后写错数据
+        if (dataSourceId == null || dataSourceId.isBlank()) {
+            throw new CustomException(ErrorStatusEnum.DATASOURCE_NOT_FOUNT.getCode(),
+                    "接口未配置数据源，已终止执行");
+        }
         if (schema != null && !schema.isEmpty()) {
             String dataSourceType = (String)paramsMap.getOrDefault(BaseConstant.DATA_SOURCE_TYPE, "");
             return String.format("%s:%s:%s", dataSourceId, dataSourceType, schema);
@@ -448,9 +461,11 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
      */
     private void bindParameters(PreparedStatement statement, BoundSql boundSql, Map<String, Object> paramsMap) throws SQLException {
         List<ParameterMapping> parameterMappings = boundSql.getParameterMappings();
+        // MetaObject 反射包装整个绑定循环复用一次，避免每参数重建
+        MetaObject metaObject = myBatisConfiguration.newMetaObject(paramsMap);
         for (int i = 0; i < parameterMappings.size(); i++) {
             String property = parameterMappings.get(i).getProperty();
-            Object value = getParameterValue(boundSql, paramsMap, property);
+            Object value = getParameterValue(boundSql, paramsMap, property, metaObject);
 
             // 1. 参数安全验证
             if (value == null) {
@@ -473,14 +488,13 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
     /**
      * foreach等动态标签会生成additionalParameter，普通参数再从Map或嵌套属性中读取。
      */
-    private Object getParameterValue(BoundSql boundSql, Map<String, Object> paramsMap, String property) {
+    private Object getParameterValue(BoundSql boundSql, Map<String, Object> paramsMap, String property, MetaObject metaObject) {
         if (boundSql.hasAdditionalParameter(property)) {
             return boundSql.getAdditionalParameter(property);
         }
         if (paramsMap.containsKey(property)) {
             return paramsMap.get(property);
         }
-        MetaObject metaObject = myBatisConfiguration.newMetaObject(paramsMap);
         return metaObject.getValue(property);
     }
 

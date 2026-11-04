@@ -2,13 +2,13 @@ package cn.crabc.core.app.mcp.tools;
 
 import cn.crabc.core.app.entity.BaseDatasource;
 import cn.crabc.core.app.mcp.McpTestFixture;
+import cn.crabc.core.app.mcp.WithMcpToken;
 import cn.crabc.core.app.support.DatasourceGuard;
 import cn.crabc.core.app.mcp.support.McpToolSupport;
 import cn.crabc.core.app.service.system.IBaseDataSourceService;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -41,6 +41,7 @@ import static org.mockito.Mockito.when;
  *
  * @author yuqf
  */
+@WithMcpToken
 class DataSourceToolsTest {
 
     private static final String PASSWORD = "Read@123";
@@ -52,12 +53,6 @@ class DataSourceToolsTest {
     void setUp() {
         dataSourceService = mock(IBaseDataSourceService.class);
         tools = new DataSourceTools(dataSourceService, McpTestFixture.support(), new DatasourceGuard());
-        McpTestFixture.bindReadWriteContext();
-    }
-
-    @AfterEach
-    void tearDown() {
-        McpTestFixture.clearContext();
     }
 
     @Test
@@ -65,7 +60,7 @@ class DataSourceToolsTest {
     void createHappyPath() {
         AtomicReference<String> userIdInService = new AtomicReference<>();
         when(dataSourceService.test(any(BaseDatasource.class))).thenAnswer(invocation -> {
-            userIdInService.set(UserThreadLocal.getUserId());
+            userIdInService.set(UserContext.getUserId());
             return "1";
         });
         when(dataSourceService.addDataSource(any(BaseDatasource.class))).thenAnswer(invocation -> {
@@ -94,7 +89,7 @@ class DataSourceToolsTest {
         assertEquals("readonly", saved.getUsername());
 
         assertEquals(McpTestFixture.USER_ID, userIdInService.get(), "service 调用线程必须已绑定归属用户");
-        assertNull(UserThreadLocal.get(), "调用结束后必须清理线程上下文");
+        assertNull(UserContext.get(), "调用结束后必须清理线程上下文");
     }
 
     @Test
@@ -287,12 +282,11 @@ class DataSourceToolsTest {
     @Test
     @DisplayName("安全：只读令牌不允许新增数据源")
     void createRejectedForReadOnlyToken() {
-        McpTestFixture.bindReadOnlyContext();
-
-        CustomException ex = assertThrows(CustomException.class, () -> tools.datasourceCreate("ds", "mysql",
-                "127.0.0.1", "3306", "db", "u", "p", null, null));
-
-        assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
+        McpTestFixture.withReadOnlyContext(() -> {
+            CustomException ex = assertThrows(CustomException.class, () -> tools.datasourceCreate("ds", "mysql",
+                    "127.0.0.1", "3306", "db", "u", "p", null, null));
+            assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
+        });
         verify(dataSourceService, never()).test(any(BaseDatasource.class));
     }
 

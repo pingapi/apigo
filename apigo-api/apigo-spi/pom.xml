@@ -10,9 +10,5 @@
     <modelVersion>4.0.0</modelVersion>
 
     <artifactId>apigo-spi</artifactId>
-    <properties>
-        <maven.compiler.source>25</maven.compiler.source>
-        <maven.compiler.target>25</maven.compiler.target>
-    </properties>
 
 </project>

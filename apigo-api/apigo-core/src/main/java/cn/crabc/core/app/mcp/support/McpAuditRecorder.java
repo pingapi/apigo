@@ -1,7 +1,7 @@
 package cn.crabc.core.app.mcp.support;
 
 import cn.crabc.core.app.mcp.auth.McpAuthContext;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -56,7 +56,7 @@ public class McpAuditRecorder {
 
     private String safeUserId() {
         try {
-            return UserThreadLocal.getUserId();
+            return UserContext.getUserId();
         } catch (Exception e) {
             return "unknown";
         }

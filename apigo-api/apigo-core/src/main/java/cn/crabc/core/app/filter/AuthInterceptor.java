@@ -6,13 +6,14 @@ import cn.crabc.core.app.entity.dto.ApiInfoDTO;
 import cn.crabc.core.app.service.system.IBaseApiInfoService;
 import cn.crabc.core.app.service.system.IBaseApiLogService;
 import cn.crabc.core.app.service.system.impl.ApiRateLimitService;
-import cn.crabc.core.app.util.ApiThreadLocal;
+import cn.crabc.core.app.util.ApiContext;
 import cn.crabc.core.app.util.RequestUtils;
 import cn.crabc.core.app.util.Result;
 import cn.crabc.core.app.util.SM3Util;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import jakarta.annotation.PreDestroy;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
@@ -99,6 +100,14 @@ public class AuthInterceptor implements HandlerInterceptor {
     public AuthInterceptor() {
         // 每500ms执行一次批量消费任务
         scheduler.scheduleAtFixedRate(this::consumeLogBatch, CONSUME_INTERVAL_MS, CONSUME_INTERVAL_MS, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * 应用关闭时停止消费线程（ExecutorService 自 JDK 19 起支持 AutoCloseable 语义）。
+     */
+    @PreDestroy
+    public void shutdown() {
+        scheduler.close();
     }
 
     /**
@@ -235,7 +244,7 @@ public class AuthInterceptor implements HandlerInterceptor {
         ApiInfoDTO requestApi = copyForRequest(apiInfo);
         requestApi.setRequestDate(new Date());
         requestApi.setRequestTime(System.currentTimeMillis());
-        ApiThreadLocal.set(requestApi);
+        ApiContext.set(requestApi);
 
         // 5. API启用状态检查
         if (apiInfo.getEnabled() == 0) {
@@ -282,8 +291,6 @@ public class AuthInterceptor implements HandlerInterceptor {
     @Override
     public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, @Nullable Exception ex) throws Exception {
         addLogAsync(request, response, "");
-        // 清除上下文
-        ApiThreadLocal.remove();
     }
 
     /**
@@ -411,7 +418,7 @@ public class AuthInterceptor implements HandlerInterceptor {
         ContentCachingResponseWrapper responseWrapper = null;
         BaseApiLog apiLog = new BaseApiLog();
         long endTime = System.currentTimeMillis();
-        ApiInfoDTO apiInfo = ApiThreadLocal.get();
+        ApiInfoDTO apiInfo = ApiContext.get();
         Date date = new Date();
         if (apiInfo != null) {
             apiLog.setApiId(apiInfo.getApiId());

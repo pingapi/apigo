@@ -26,9 +26,10 @@ services:
     ports:
       - "9377:9377"
     environment:
-      - db_url=jdbc:mysql://mysql:3306/crabc
-      - db_user=root
-      - db_pwd=admin123
+      # 环境变量名大小写敏感：application.yml 里是 ${DB_URL}/${DB_USER}/${DB_PWD}
+      - DB_URL=jdbc:mysql://mysql:3306/crabc
+      - DB_USER=root
+      - DB_PWD=admin123
       # JWT 签名密钥，必填；未设置时应用启动失败（生成：openssl rand -base64 32）
       - JWT_SECRET=${JWT_SECRET:?请先设置 JWT_SECRET 环境变量}
 networks:

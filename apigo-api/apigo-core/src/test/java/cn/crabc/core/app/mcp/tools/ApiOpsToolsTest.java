@@ -7,13 +7,13 @@ import cn.crabc.core.app.entity.param.ApiRateLimitParam;
 import cn.crabc.core.app.entity.vo.ApiInfoVO;
 import cn.crabc.core.app.entity.vo.ApiRateLimitVO;
 import cn.crabc.core.app.mcp.McpTestFixture;
+import cn.crabc.core.app.mcp.WithMcpToken;
 import cn.crabc.core.app.service.core.IBaseDataService;
 import cn.crabc.core.app.service.system.IBaseApiInfoService;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import cn.crabc.core.datasource.constant.BaseConstant;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -40,6 +40,7 @@ import static org.mockito.Mockito.when;
  *
  * @author yuqf
  */
+@WithMcpToken
 class ApiOpsToolsTest {
 
     private IBaseApiInfoService apiInfoService;
@@ -52,12 +53,6 @@ class ApiOpsToolsTest {
         baseDataService = mock(IBaseDataService.class);
         tools = new ApiOpsTools(apiInfoService, baseDataService, McpTestFixture.support(),
                 McpTestFixture.jsonMapper());
-        McpTestFixture.bindReadWriteContext();
-    }
-
-    @AfterEach
-    void tearDown() {
-        McpTestFixture.clearContext();
     }
 
     @Test
@@ -91,11 +86,10 @@ class ApiOpsToolsTest {
     @Test
     @DisplayName("安全：只读令牌不允许发布接口")
     void publishRejectedForReadOnlyToken() {
-        McpTestFixture.bindReadOnlyContext();
-
-        CustomException ex = assertThrows(CustomException.class, () -> tools.apiPublish(57L, true));
-
-        assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
+        McpTestFixture.withReadOnlyContext(() -> {
+            CustomException ex = assertThrows(CustomException.class, () -> tools.apiPublish(57L, true));
+            assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
+        });
         verify(apiInfoService, never()).apiPublish(any(ApiInfoParam.class));
     }
 
@@ -182,7 +176,7 @@ class ApiOpsToolsTest {
         assertEquals(1, params.get("id"));
         assertEquals(0, params.get(BaseConstant.TRANSACTION_ENABLED));
         assertEquals(1, params.get(BaseConstant.PAGE_NUM), "接口开启了分页，应给测试加上分页参数");
-        assertNull(UserThreadLocal.get());
+        assertNull(UserContext.get());
     }
 
     @Test

@@ -11,8 +11,6 @@
 
     <artifactId>apigo-admin</artifactId>
     <properties>
-        <maven.compiler.source>25</maven.compiler.source>
-        <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
     <dependencies>
@@ -37,16 +35,9 @@
                     </execution>
                 </executions>
             </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.8.1</version>
-                <configuration>
-                    <compilerArgs>
-                        <arg>-parameters</arg>
-                    </compilerArgs>
-                </configuration>
-            </plugin>
+            <!-- 编译参数统一由根 pom 管理（release/parameters/proc），此处不再单独钉版本：
+                 maven-compiler-plugin 3.8.1 不支持 JDK 23+ 的 -proc:full 语义 -->
+
         </plugins>
     </build>
 </project>

@@ -25,7 +25,7 @@ import java.util.Set;
  * <p>
  * 约定：
  * <ul>
- *     <li>管理员（{@link UserThreadLocal#isAdmin()}）可跨租户操作，校验直接放行；</li>
+ *     <li>管理员（{@link UserContext#isAdmin()}）可跨租户操作，校验直接放行；</li>
  *     <li>普通用户只能操作 {@code create_by} 等于自己的资源；</li>
  *     <li>历史数据 {@code create_by} 为空时，仅管理员可操作（fail-closed）。</li>
  * </ul>
@@ -54,14 +54,14 @@ public class ResourceOwnerGuard {
      * @return 归属过滤值，管理员为 null
      */
     public String ownerScope() {
-        return isAdmin() ? null : UserThreadLocal.getUserId();
+        return isAdmin() ? null : UserContext.getUserId();
     }
 
     /**
      * 当前用户是否可跨租户操作。
      */
     public boolean isAdmin() {
-        return UserThreadLocal.isAdmin();
+        return UserContext.isAdmin();
     }
 
     /**
@@ -151,7 +151,7 @@ public class ResourceOwnerGuard {
         if (distinct.isEmpty()) {
             return;
         }
-        String owner = UserThreadLocal.getUserId();
+        String owner = UserContext.getUserId();
         Integer owned = apiInfoMapper.countOwnedReleasedApis(distinct, owner);
         if (owned == null || owned != distinct.size()) {
             throw new CustomException(ErrorStatusEnum.FORBID_OPERATE.getCode(),
@@ -169,7 +169,7 @@ public class ResourceOwnerGuard {
         if (isAdmin()) {
             return;
         }
-        String userId = UserThreadLocal.getUserId();
+        String userId = UserContext.getUserId();
         if (createBy == null || createBy.isBlank() || !createBy.equals(userId)) {
             throw new CustomException(ErrorStatusEnum.FORBID_OPERATE.getCode(),
                     "无权操作他人的" + type + "，如需跨租户操作请联系管理员");

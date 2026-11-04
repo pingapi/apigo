@@ -4,7 +4,7 @@ import cn.crabc.core.app.entity.BaseApiParam;
 import cn.crabc.core.app.entity.dto.ApiInfoDTO;
 import cn.crabc.core.app.enums.ResultTypeEnum;
 import cn.crabc.core.app.service.core.IBaseDataService;
-import cn.crabc.core.app.util.ApiThreadLocal;
+import cn.crabc.core.app.util.ApiContext;
 import cn.crabc.core.app.util.Result;
 import cn.crabc.core.datasource.constant.BaseConstant;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
@@ -55,7 +55,7 @@ public class ApiServiceController {
     @RequestMapping(value = "/**", method = {RequestMethod.GET, RequestMethod.DELETE})
     public Result getService(@RequestParam(required = false) Map<String, Object> paramMap, HttpServletResponse response) {
         // 1. 获取API配置信息
-        ApiInfoDTO api = ApiThreadLocal.get();
+        ApiInfoDTO api = ApiContext.get();
         if (api == null) {
             response.setStatus(400);
             return Result.error(ErrorStatusEnum.API_INVALID.getCode(), ErrorStatusEnum.API_INVALID.getMassage());
@@ -87,7 +87,7 @@ public class ApiServiceController {
     @RequestMapping(value = "/**", method = {RequestMethod.POST, RequestMethod.PUT})
     public Result postService(@RequestParam(required = false) Map<String, Object> paramMap, @RequestBody(required = false) Object body, HttpServletResponse response) {
         // 1. 获取API配置信息
-        ApiInfoDTO api = ApiThreadLocal.get();
+        ApiInfoDTO api = ApiContext.get();
         if (api == null) {
             response.setStatus(400);
             return Result.error(ErrorStatusEnum.API_INVALID.getCode(), ErrorStatusEnum.API_INVALID.getMassage());

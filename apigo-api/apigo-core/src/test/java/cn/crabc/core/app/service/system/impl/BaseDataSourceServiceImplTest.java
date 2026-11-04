@@ -6,7 +6,6 @@ import cn.crabc.core.app.service.core.IBaseDataService;
 import cn.crabc.core.app.support.DatasourceGuard;
 import cn.crabc.core.datasource.driver.DataSourceManager;
 import cn.crabc.core.spi.bean.BaseDataSource;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -51,11 +50,6 @@ class BaseDataSourceServiceImplTest {
         ReflectionTestUtils.setField(service, "iBaseDataService", iBaseDataService);
         // 连接串守卫：协议白名单 + 危险参数 + 禁止指向平台主库（未配置主库时只做前者）
         ReflectionTestUtils.setField(service, "datasourceGuard", new DatasourceGuard());
-    }
-
-    @AfterEach
-    void tearDown() {
-        cn.crabc.core.app.util.UserThreadLocal.remove();
     }
 
     @Test

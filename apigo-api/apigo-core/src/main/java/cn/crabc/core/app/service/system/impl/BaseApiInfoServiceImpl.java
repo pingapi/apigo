@@ -17,7 +17,7 @@ import cn.crabc.core.app.service.system.IBaseApiInfoService;
 import cn.crabc.core.datasource.constant.BaseConstant;
 import cn.crabc.core.datasource.util.PageInfo;
 import cn.crabc.core.app.util.ResourceOwnerGuard;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
 import cn.crabc.core.plugin.DataPluginConfigValidator;
@@ -187,7 +187,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         BaseApiInfo apiInfo = new BaseApiInfo();
         apiInfo.setApiId(param.getApiId());
         apiInfo.setUpdateTime(new Date());
-        apiInfo.setUpdateBy(UserThreadLocal.getUserId());
+        apiInfo.setUpdateBy(UserContext.getUserId());
         if (!isClearRateLimit(param)) {
             apiInfo.setRateLimitWindowSeconds(parseWindowSeconds(param));
             apiInfo.setRateLimitCount(parseLimitCount(param));
@@ -258,7 +258,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         fillScriptTimeoutDefault(api);
         api.setCreateTime(date);
         api.setUpdateTime(date);
-        api.setCreateBy(UserThreadLocal.getUserId());
+        api.setCreateBy(UserContext.getUserId());
         if (api.getGroupId() == null) {
             api.setGroupId(1);
         }
@@ -296,7 +296,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         fillTransactionDefault(api);
         fillScriptTimeoutDefault(api);
         api.setUpdateTime(updateTime);
-        api.setUpdateBy(UserThreadLocal.getUserId());
+        api.setUpdateBy(UserContext.getUserId());
         apiInfoMapper.updateApiInfo(api);
         apiParamMapper.delete(apiId);
         // 参数
@@ -313,7 +313,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         BaseApiInfo baseApiInfo = new BaseApiInfo();
         baseApiInfo.setApiId(apiId);
         baseApiInfo.setUpdateTime(new Date());
-        baseApiInfo.setUpdateBy(UserThreadLocal.getUserId());
+        baseApiInfo.setUpdateBy(UserContext.getUserId());
         if (status != null && !"".equals(status)) {
             baseApiInfo.setApiStatus(status);
         }
@@ -352,7 +352,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         api.setParentId(0L);
         api.setReleaseTime(updateTime);
         api.setUpdateTime(updateTime);
-        api.setUpdateBy(UserThreadLocal.getUserId());
+        api.setUpdateBy(UserContext.getUserId());
         api.setApiStatus(ApiStateEnum.RELEASE.getName());
         if (sql != null) {
             api.setDatasourceId(sql.getDatasourceId());
@@ -370,7 +370,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         if (publishDraft) {
             apiParamMapper.delete(apiId);
             this.insertApiParams(publishParam.getRequestParam(), publishParam.getResponseParam(), apiId);
-            apiInfoMapper.updateDraftContent(apiId, null, UserThreadLocal.getUserId());
+            apiInfoMapper.updateDraftContent(apiId, null, UserContext.getUserId());
         }
         invalidateApiCache(previousApi);
         invalidateApiCache(api);
@@ -403,7 +403,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
         // 应用与接口都必须归属当前用户，否则等于跨租户越权绑定
         ownerGuard.assertApp(appApi.getAppId());
         ownerGuard.assertApisOwnedAndReleased(appApi.getApiIds());
-        String userId = UserThreadLocal.getUserId();
+        String userId = UserContext.getUserId();
         baseAppApiMapper.delete(appApi.getAppId(), userId);
 
         if (appApi.getApiIds() == null || appApi.getApiIds().size() == 0) {
@@ -427,7 +427,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
     @Override
     public Integer destroyApiInfo(Long apiId) {
         ownerGuard.assertApi(apiId);
-        String userId = UserThreadLocal.getUserId();
+        String userId = UserContext.getUserId();
         BaseApiInfo previousApi = getApiForCacheInvalidation(apiId);
 
         BaseApiInfo baseApiInfo = new BaseApiInfo();
@@ -489,7 +489,7 @@ public class BaseApiInfoServiceImpl implements IBaseApiInfoService {
             params.getSqlInfo().setApiId(apiId);
         }
         try {
-            apiInfoMapper.updateDraftContent(apiId, jsonMapper.writeValueAsString(params), UserThreadLocal.getUserId());
+            apiInfoMapper.updateDraftContent(apiId, jsonMapper.writeValueAsString(params), UserContext.getUserId());
         } catch (Exception e) {
             throw new CustomException(ErrorStatusEnum.SYSTEM_ERROR.getCode(), "暂存接口信息失败");
         }

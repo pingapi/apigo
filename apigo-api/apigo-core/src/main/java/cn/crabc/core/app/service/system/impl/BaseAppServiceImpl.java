@@ -6,7 +6,7 @@ import cn.crabc.core.app.mapper.BaseAppMapper;
 import cn.crabc.core.app.service.system.IBaseAppService;
 import cn.crabc.core.app.util.ResourceOwnerGuard;
 import cn.crabc.core.datasource.util.PageInfo;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.pagehelper.PageHelper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,7 +56,7 @@ public class BaseAppServiceImpl implements IBaseAppService {
     public Integer addApp(BaseApp app) {
         app.setStrategyType("white");
         app.setEnabled(1);
-        app.setCreateBy(UserThreadLocal.getUserId());
+        app.setCreateBy(UserContext.getUserId());
         app.setCreateTime(new Date());
         app.setUpdateTime(new Date());
         return baseAppMapper.insert(app);
@@ -71,7 +71,7 @@ public class BaseAppServiceImpl implements IBaseAppService {
             app.setAppSecret(null);
         }
         app.setUpdateTime(new Date());
-        app.setUpdateBy(UserThreadLocal.getUserId());
+        app.setUpdateBy(UserContext.getUserId());
         baseAppMapper.update(app);
         apiInfoCache.invalidateAll();
         return 1;

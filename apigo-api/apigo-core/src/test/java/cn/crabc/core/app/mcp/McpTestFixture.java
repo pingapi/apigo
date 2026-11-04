@@ -17,7 +17,10 @@ import java.util.List;
 public final class McpTestFixture {
 
     /**
-     * 与 application.yml 中 crabc.mcp.user-id 默认值一致。
+     * 测试注入的 MCP 归属用户。
+     * <p>
+     * 注意 application.yml 中 {@code crabc.mcp.user-id} 默认已改为空（未配置时 fail-closed），
+     * 这里只是测试用固定值，不代表线上默认值。
      */
     public static final String USER_ID = "1";
 
@@ -38,11 +41,27 @@ public final class McpTestFixture {
      * 构造配置就绪的 McpToolSupport（@Value 字段由反射注入，避免启动 Spring 容器）。
      */
     public static McpToolSupport support() {
-        McpToolSupport support = new McpToolSupport(new McpAuditRecorder());
+        return support(new McpAuditRecorder());
+    }
+
+    /**
+     * 使用指定审计记录器构造 support（审计断言用例需要开启审计）。
+     */
+    public static McpToolSupport support(McpAuditRecorder auditRecorder) {
+        McpToolSupport support = new McpToolSupport(auditRecorder);
         ReflectionTestUtils.setField(support, "defaultUserId", USER_ID);
         ReflectionTestUtils.setField(support, "maxPageSize", 20);
         ReflectionTestUtils.setField(support, "maxTextLength", 2000);
         return support;
+    }
+
+    /**
+     * 构造已开启审计的记录器（@Value 字段由反射注入）。
+     */
+    public static McpAuditRecorder auditRecorder() {
+        McpAuditRecorder recorder = new McpAuditRecorder();
+        ReflectionTestUtils.setField(recorder, "auditEnabled", true);
+        return recorder;
     }
 
     public static JsonMapper jsonMapper() {
@@ -50,21 +69,23 @@ public final class McpTestFixture {
     }
 
     /**
-     * 模拟一个读写令牌的调用上下文（变更类工具测试必须先绑定，否则会被 fail-closed 拒绝）。
+     * 在读写令牌的调用上下文中执行动作（ScopedValue 阴影绑定，退出自动解绑）。
      */
-    public static void bindReadWriteContext() {
-        McpAuthContext.set(TOKEN_NAME, McpTokenScope.READ_WRITE, CLIENT_IP);
+    public static void withReadWriteContext(Runnable action) {
+        McpAuthContext.scope(new McpAuthContext.Entry(TOKEN_NAME, McpTokenScope.READ_WRITE, CLIENT_IP), () -> {
+            action.run();
+            return null;
+        });
     }
 
     /**
-     * 模拟一个只读令牌的调用上下文。
+     * 在只读令牌的调用上下文中执行动作。
      */
-    public static void bindReadOnlyContext() {
-        McpAuthContext.set(TOKEN_NAME, McpTokenScope.READ_ONLY, CLIENT_IP);
-    }
-
-    public static void clearContext() {
-        McpAuthContext.clear();
+    public static void withReadOnlyContext(Runnable action) {
+        McpAuthContext.scope(new McpAuthContext.Entry(TOKEN_NAME, McpTokenScope.READ_ONLY, CLIENT_IP), () -> {
+            action.run();
+            return null;
+        });
     }
 
     /**

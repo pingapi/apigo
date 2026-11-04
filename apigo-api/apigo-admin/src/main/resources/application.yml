@@ -22,15 +22,12 @@ spring:
     date-format: yyyy-MM-dd HH:mm:ss
     time-zone: Asia/Shanghai
     default-property-inclusion: non_null
-    core:
-      recycler-pool: thread-local  # Jackson3性能恢复
   # MCP Server：对内嵌的 /mcp 端点暴露 ApiGo 业务工具给 AI 办公平台
   ai:
     mcp:
       server:
         # 与 crabc.mcp.enabled 联动：一处开关同时控制 MCP 端点与鉴权 Filter，
-        # 避免"关了开关但端点仍匿名可用"
-        enabled: ${crabc.mcp.enabled:true}
+        enabled: ${crabc.mcp.enabled:false}
         name: apigo-mcp-server
         version: 6.0.0
         protocol: STREAMABLE        # STREAMABLE | STATELESS | SSE，三选一不可共存
@@ -56,6 +53,7 @@ spring:
           enabled: true             # 自动扫描 @McpTool
   datasource:
     type: com.alibaba.druid.pool.DruidDataSource
+    # 下面是本地开发默认值（明文 + 关闭 TLS），生产环境必须通过 DB_URL 覆盖为加密连接
     url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/apigo?characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${DB_USER:root}
     password: ${DB_PWD:}
@@ -72,16 +70,25 @@ pagehelper:
 
 
 crabc:
+  # Jackson 缓冲区回收池策略：shared（跨线程复用，默认）| thread-local | non-recycling | bounded
+  # Boot 4.1 的 spring.jackson.* 不含该配置项，实际由 JacksonConfig 读取本键生效
+  jackson:
+    recycler-pool: shared
   api-log:
-    response-body: true  # 日志是否保存响应结果
+    # 日志是否保存响应结果：默认关闭。大响应体会放大堆内存与 DB 写入，
+    # 需要排查问题时临时打开（单条 body 仍有 128K 截断保护）
+    response-body: false
   mcp:
-    enabled: true
-    token: ${MCP_TOKEN:sk-*****}
-    user-id: "1"                    # MCP 操作归属用户（默认 admin 的 userId），决定 createBy/updateBy
+    # 默认关闭：MCP 暴露的是整个平台的管理能力（建数据源/改接口/改授权），需要时显式开启
+    enabled: false
+    # 必须由部署环境注入（建议 openssl rand -base64 32）；为空时 MCP 端点拒绝全部请求（fail-closed）
+    token: ${MCP_TOKEN:}
+    # 必填：MCP 操作归属用户，决定 createBy/updateBy；建议绑定专用账号而非 admin
+    user-id: ${MCP_USER_ID:}
     audit-enabled: true             # 变更类工具是否记录审计日志
     max-page-size: 20               # 工具层分页硬上限
     max-text-length: 2000           # SQL 等长文本截断长度
-    allowed-jdbc-schemes: mysql,mariadb,tdsql,tidb,doris,starrocks,postgresql,opengauss,oracle,sqlserver,dm,clickhouse,dolphindb,duckdb,sybase,hive,db2,oceanbase
+    allowed-jdbc-schemes: mysql,mariadb,tdsql,tidb,doris,starrocks,postgresql,opengauss,oracle,sqlserver,dm,clickhouse,dolphindb,duckdb,sybase,db2,oceanbase
     # true 时拒绝连接回环/内网地址
     block-internal-host: false
   # JWT 签名密钥：必须由部署环境注入（环境变量 JWT_SECRET），生成方式 openssl rand -base64 32。

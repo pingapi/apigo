@@ -12,15 +12,14 @@
     <description>接口开发平台</description>
     <modules>
         <module>apigo-api</module>
-        <module>apigo-spring-boot-starter</module>
+<!--        <module>apigo-spring-boot-starter</module>-->
     </modules>
 
     <properties>
         <!-- apigo 版本-->
-        <revision>6.4.0</revision>
+        <revision>6.5.0</revision>
         <java.version>25</java.version>
-        <maven.compiler.source>25</maven.compiler.source>
-        <maven.compiler.target>25</maven.compiler.target>
+        <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-boot.version>4.1.2</spring-boot.version>
         <spring-boot.mybatis.version>4.1.0</spring-boot.mybatis.version>
@@ -34,16 +33,6 @@
         <jdk18on.version>1.80</jdk18on.version>
         <spring-ai.version>2.0.2</spring-ai.version>
     </properties>
-    <repositories>
-        <repository>
-            <id>spring-milestones</id>
-            <name>Spring Milestones</name>
-            <url>https://repo.spring.io/milestone</url>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
-        </repository>
-    </repositories>
     <dependencyManagement>
         <dependencies>
             <dependency>
@@ -67,12 +56,55 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+                <!-- 统一版本：3.13.0 起才正式支持 JDK 23+ 的 -proc:full，旧版本行为不可预期 -->
+                <version>3.14.0</version>
                 <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
+                    <release>${maven.compiler.release}</release>
                     <encoding>${project.build.sourceEncoding}</encoding>
                     <parameters>true</parameters>
+                    <!-- JDK 23+ javac 默认禁用隐式注解处理器，Lombok 需显式开启 -->
+                    <proc>full</proc>
+                    <!-- 显式声明处理器路径：不依赖 classpath 扫描，避免 JDK 后续再调整隐式处理器策略 -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
+            </plugin>
+            <!-- 单测执行：统一版本，并允许 Mockito/ByteBuddy 动态加载代理。
+                 JDK 21+ 默认对动态加载 agent 打印告警，后续版本会直接禁止，这里提前显式开启 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
+                <configuration>
+                    <argLine>-XX:+EnableDynamicAgentLoading</argLine>
+                </configuration>
+            </plugin>
+            <!-- 构建环境闸门：JDK 版本不满足时给出明确提示，而不是晦涩的 "invalid target release" -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>enforce-jdk</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[25,)</version>
+                                    <message>本项目已升级到 Java 25：请用 JDK 25 构建（java -version 检查），或设置 JAVA_HOME 指向 JDK 25。</message>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <!-- 统一 revision 版本 -->
             <plugin>

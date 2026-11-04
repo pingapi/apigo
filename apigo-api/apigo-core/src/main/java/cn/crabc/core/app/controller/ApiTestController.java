@@ -113,8 +113,10 @@ public class ApiTestController {
         if (params.getDatasourceId() == null) {
             return Result.error(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(), ErrorStatusEnum.PARAM_NOT_FOUNT.getMassage());
         }
-        // 接口与数据源都必须是当前用户的资源
-        ownerGuard.assertApi(apiId);
+        // 接口与数据源都必须是当前用户的资源；apiId 为 0 表示新建未保存的接口，此时没有接口归属可校验
+        if (apiId != null && apiId > 0) {
+            ownerGuard.assertApi(apiId);
+        }
         this.requireOwnedDatasource(params.getDatasourceId());
         
         // 设置默认数据源类型
@@ -179,7 +181,7 @@ public class ApiTestController {
     /**
      * 超时时间优先级：页面当前设置（未保存的修改也能生效）> 接口已保存配置 > 平台默认值。
      *
-     * @param apiId  接口ID，可能为空（新建未保存的接口）
+     * @param apiId  接口ID，可能为空或 0（新建未保存的接口）
      * @param params 请求参数，可能携带页面当前输入的脚本超时时间
      * @return 生效的脚本超时时间（秒）
      */
@@ -188,7 +190,7 @@ public class ApiTestController {
         if (requestTimeout != null && requestTimeout >= BaseConstant.MIN_SCRIPT_TIMEOUT_SECONDS) {
             return Math.min(requestTimeout, BaseConstant.MAX_SCRIPT_TIMEOUT_SECONDS);
         }
-        if (apiId == null) {
+        if (apiId == null || apiId <= 0) {
             return BaseConstant.DEFAULT_SCRIPT_TIMEOUT_SECONDS;
         }
         try {

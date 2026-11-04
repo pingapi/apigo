@@ -1,13 +1,19 @@
 package cn.crabc.core.app.mcp.support;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import cn.crabc.core.app.mcp.McpTestFixture;
+import cn.crabc.core.app.mcp.WithMcpToken;
 import cn.crabc.core.app.mcp.auth.McpAuthContext;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.mcp.auth.McpTokenScope;
+import cn.crabc.core.app.util.UserContext;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -15,11 +21,15 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,14 +39,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * @author yuqf
  */
+@WithMcpToken
 class McpToolSupportTest {
 
     private final McpToolSupport support = McpTestFixture.support();
-
-    @AfterEach
-    void tearDown() {
-        McpTestFixture.clearContext();
-    }
 
     @Test
     @DisplayName("分页钳制：页码最小 1，页大小默认 10、上限 20")
@@ -176,21 +182,21 @@ class McpToolSupportTest {
     }
 
     @Test
-    @DisplayName("bindUser：业务体内可见归属用户，结束后清理线程上下文")
+    @DisplayName("bindUser：业务体内可见归属用户，作用域退出自动清理")
     void bindUser() {
         AtomicReference<String> userIdInAction = new AtomicReference<>();
         AtomicReference<String> userNameInAction = new AtomicReference<>();
 
         String result = support.bindUser("apigo_test", () -> {
-            userIdInAction.set(UserThreadLocal.getUserId());
-            userNameInAction.set(String.valueOf(UserThreadLocal.get().get("userName")));
+            userIdInAction.set(UserContext.getUserId());
+            userNameInAction.set(String.valueOf(UserContext.get().userName()));
             return "ok";
         });
 
         assertEquals("ok", result);
         assertEquals(McpTestFixture.USER_ID, userIdInAction.get(), "createBy/updateBy 依赖该上下文");
         assertTrue(userNameInAction.get().startsWith("mcp:"));
-        assertNull(UserThreadLocal.get(), "必须清理，防止虚拟线程复用串号");
+        assertNull(UserContext.get(), "作用域退出必须自动解绑，防止虚拟线程复用串号");
     }
 
     @Test
@@ -200,41 +206,73 @@ class McpToolSupportTest {
             throw new CustomException(44001, "无效的API");
         }));
         assertEquals(44001, ex.getCode());
-        assertNull(UserThreadLocal.get());
+        assertNull(UserContext.get());
+    }
+
+    @Test
+    @DisplayName("bindUser：审计必须在作用域内记录，userId 不得退化为兜底值 0")
+    void auditRecordsUserIdInsideScope() {
+        Logger auditLogger = (Logger) LoggerFactory.getLogger("MCP-AUDIT");
+        Level previousLevel = auditLogger.getLevel();
+        // 显式放开级别：避免未来引入 logback-test.xml 调高 root 级别后，本用例以「没记录审计」的形式误报
+        auditLogger.setLevel(Level.INFO);
+
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        auditLogger.addAppender(appender);
+
+        try {
+            McpToolSupport audited = McpTestFixture.support(McpTestFixture.auditRecorder());
+            audited.bindUser("apigo_test", "apiId=1", () -> "ok");
+            assertThrows(CustomException.class, () -> audited.bindUser("apigo_test_fail", null, () -> {
+                throw new CustomException(44001, "无效的API");
+            }));
+        } finally {
+            auditLogger.detachAppender(appender);
+            appender.stop();
+            auditLogger.setLevel(previousLevel);
+        }
+
+        assertEquals(2, appender.list.size(), "成功与失败各记录一条审计");
+        for (ILoggingEvent event : appender.list) {
+            String message = event.getFormattedMessage();
+            assertTrue(message.contains("userId=" + McpTestFixture.USER_ID),
+                    "审计在作用域外记录时 userId 会退化为 0：" + message);
+            assertTrue(message.contains("token=" + McpTestFixture.TOKEN_NAME), message);
+        }
     }
 
     @Test
     @DisplayName("bindWrite：读写令牌可执行变更类工具")
     void bindWriteAllowed() {
-        McpTestFixture.bindReadWriteContext();
-
         String result = support.bindWrite("apigo_api_publish", "apiId=1", () -> {
             assertTrue(McpAuthContext.tokenName().contains("test"), "审计需要读到调用方标识");
             return "ok";
         });
 
         assertEquals("ok", result);
-        assertNull(UserThreadLocal.get());
+        assertNull(UserContext.get());
     }
 
     @Test
     @DisplayName("bindWrite：只读令牌被拒绝，业务体不执行")
     void bindWriteDeniedForReadOnly() {
-        McpTestFixture.bindReadOnlyContext();
         AtomicReference<Boolean> executed = new AtomicReference<>(false);
 
-        CustomException ex = assertThrows(CustomException.class,
-                () -> support.bindWrite("apigo_api_publish", null, () -> {
-                    executed.set(true);
-                    return "ok";
-                }));
-
-        assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
-        assertTrue(ex.getMsg().contains("只读"));
+        McpTestFixture.withReadOnlyContext(() -> {
+            CustomException ex = assertThrows(CustomException.class,
+                    () -> support.bindWrite("apigo_api_publish", null, () -> {
+                        executed.set(true);
+                        return "ok";
+                    }));
+            assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
+            assertTrue(ex.getMsg().contains("只读"));
+        });
         assertEquals(false, executed.get(), "拒绝后不得触碰 service");
     }
 
     @Test
+    @WithMcpToken(McpTokenScope.UNKNOWN)
     @DisplayName("bindWrite：无鉴权上下文时 fail-closed（按只读处理）")
     void bindWriteDeniedWithoutContext() {
         AtomicReference<Boolean> executed = new AtomicReference<>(false);
@@ -248,6 +286,29 @@ class McpToolSupportTest {
         assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
         assertTrue(ex.getMsg().contains("未检测到"));
         assertEquals(false, executed.get());
+    }
+
+    @Test
+    @DisplayName("bindWrite：工具落到异步线程（请求作用域不可见）时必须 fail-closed")
+    void bindWriteDeniedOnForeignThread() throws Exception {
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<Throwable> future = pool.submit(() -> {
+                try {
+                    support.bindWrite("apigo_api_publish", null, () -> "ok");
+                    return null;
+                } catch (RuntimeException e) {
+                    return e;
+                }
+            });
+
+            Throwable error = future.get();
+            assertNotNull(error, "异步线程读不到令牌身份时不得放行写操作");
+            assertTrue(((CustomException) error).getMsg().contains("未检测到"),
+                    "应提示上下文缺失而不是静默放行：" + error.getMessage());
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test

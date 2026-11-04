@@ -3,7 +3,7 @@ package cn.crabc.core.app.filter;
 import cn.crabc.core.app.entity.BaseUser;
 import cn.crabc.core.app.mapper.BaseUserMapper;
 import cn.crabc.core.app.util.JwtUtil;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
 import io.jsonwebtoken.Claims;
@@ -65,15 +65,9 @@ public class JwtInterceptor implements HandlerInterceptor {
             throw unAuth();
         }
 
-        // 设置用户信息到线程上下文（以数据库为准，不信任令牌声明）
-        UserThreadLocal.set(user.getUserId(), user.getUsername(), user.getRole());
+        // 设置用户信息到请求上下文（以数据库为准，不信任令牌声明）
+        UserContext.set(new UserContext.UserPrincipal(user.getUserId(), user.getUsername(), user.getRole()));
         return true;
-    }
-
-    @Override
-    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, @Nullable Exception ex) throws Exception {
-        // 清除用户上下文信息
-        UserThreadLocal.remove();
     }
 
     /**

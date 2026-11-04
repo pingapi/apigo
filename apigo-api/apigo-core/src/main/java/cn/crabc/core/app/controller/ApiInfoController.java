@@ -9,7 +9,7 @@ import cn.crabc.core.app.service.system.IBaseApiInfoService;
 import cn.crabc.core.datasource.util.PageInfo;
 import cn.crabc.core.app.util.Result;
 import cn.crabc.core.app.util.SQLUtil;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -118,7 +118,7 @@ public class ApiInfoController {
      */
     @DeleteMapping("/{apiId}")
     public Result deleteApi(@PathVariable Long apiId) {
-        return Result.success(apiInfoService.deleteApi(apiId, UserThreadLocal.getUserId()));
+        return Result.success(apiInfoService.deleteApi(apiId, UserContext.getUserId()));
     }
 
     /**

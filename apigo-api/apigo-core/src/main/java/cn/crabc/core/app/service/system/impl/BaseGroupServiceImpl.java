@@ -7,7 +7,7 @@ import cn.crabc.core.app.entity.vo.BaseGroupVO;
 import cn.crabc.core.app.mapper.BaseApiInfoMapper;
 import cn.crabc.core.app.mapper.BaseGroupMapper;
 import cn.crabc.core.app.service.system.IBaseGroupService;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
 import org.springframework.beans.BeanUtils;
@@ -45,7 +45,7 @@ public class BaseGroupServiceImpl implements IBaseGroupService {
         if (baseGroup == null) {
             throw new CustomException(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(), "分组不存在");
         }
-        if (!UserThreadLocal.isAdmin() && !userId.equals(baseGroup.getCreateBy())) {
+        if (!UserContext.isAdmin() && !userId.equals(baseGroup.getCreateBy())) {
             throw new CustomException(ErrorStatusEnum.FORBID_OPERATE.getCode(), "无权操作他人的分组");
         }
         // 编辑不应改写归属：createBy 由创建时确定
@@ -59,7 +59,7 @@ public class BaseGroupServiceImpl implements IBaseGroupService {
         if (baseGroup == null) {
             throw new CustomException(ErrorStatusEnum.PARAM_NOT_FOUNT.getCode(), "分组不存在");
         }
-        if (!UserThreadLocal.isAdmin() && !userId.equals(baseGroup.getCreateBy())) {
+        if (!UserContext.isAdmin() && !userId.equals(baseGroup.getCreateBy())) {
             throw new CustomException(ErrorStatusEnum.FORBID_OPERATE.getCode(), "无权操作他人的分组");
         }
         return baseGroupMapper.delete(groupId);

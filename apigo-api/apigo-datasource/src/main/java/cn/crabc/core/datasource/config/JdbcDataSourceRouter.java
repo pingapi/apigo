@@ -27,29 +27,37 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
 
     private static final Logger log = LoggerFactory.getLogger(JdbcDataSourceRouter.class);
     /**
-     * 当前线程数据源KEY
+     * 当前执行链路的数据源路由 KEY（JDK 25 ScopedValue，替代 ThreadLocal）
      */
-    private static final ThreadLocal<String> DATA_SOURCE_KEY = new ThreadLocal<>();
+    private static final ScopedValue<String> DATA_SOURCE_KEY = ScopedValue.newInstance();
 
     /**
-     * 获取数据源key
+     * 获取数据源key，未绑定时返回 null
      */
     public static String getDataSourceKey() {
-        return DATA_SOURCE_KEY.get();
+        return DATA_SOURCE_KEY.isBound() ? DATA_SOURCE_KEY.get() : null;
     }
 
     /**
-     * 设置数据源key
+     * 在指定数据源 key 的作用域内执行 SQL 执行体。
+     * <p>
+     * ScopedValue 绑定随作用域退出自动解绑，替代旧的 set/remove 成对操作，
+     * 虚拟线程下不会遗留脏路由状态。
+     *
+     * @param key    数据源路由 key（{@code id:type:schema}）
+     * @param action SQL 执行体（Mapper 调用）
+     * @param <T>    返回类型
+     * @param <X>    action 可能抛出的受检异常类型
+     * @return action 的返回值
      */
-    public static void setDataSourceKey(String key) {
-        DATA_SOURCE_KEY.set(key);
-    }
-
-    /**
-     * 移除数据源
-     */
-    public static void remove() {
-        DATA_SOURCE_KEY.remove();
+    public static <T, X extends Throwable> T withKey(String key, ScopedValue.CallableOp<T, X> action) throws X {
+        if (key == null || key.isBlank()) {
+            // 空键进入作用域后 determineCurrentLookupKey() 返回 null，会静默回落到平台默认库，
+            // 属于「打错库不报错」的失效模式，因此必须在执行前显式失败。
+            throw new CustomException(ErrorStatusEnum.DATASOURCE_NOT_FOUNT.getCode(),
+                    "数据源路由键为空，已拒绝执行以避免落到平台默认数据源");
+        }
+        return ScopedValue.where(DATA_SOURCE_KEY, key).call(action);
     }
 
     /**
@@ -132,6 +140,8 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
     protected DataSource determineTargetDataSource() {
         Object dataSourceKey = determineCurrentLookupKey();
         if (dataSourceKey == null) {
+            // 仅平台自身（登录、接口配置、日志等 MyBatis 查询）走默认库；
+            // 业务 SQL 执行必须先经 withKey 绑定路由键，空键在入口即被拒绝。
             return super.getResolvedDefaultDataSource();
         }
         String dataSourceId = getDataSourceId(dataSourceKey.toString());

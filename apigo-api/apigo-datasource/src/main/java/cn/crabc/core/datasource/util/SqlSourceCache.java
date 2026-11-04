@@ -1,11 +1,9 @@
 package cn.crabc.core.datasource.util;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.apache.ibatis.mapping.SqlSource;
 import org.apache.ibatis.session.Configuration;
-
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 /**
  * SqlSource 缓存。
@@ -20,7 +18,8 @@ import java.util.Map;
  *     <li>用完整文本而非 hash，杜绝哈希碰撞导致执行到另一条 SQL；</li>
  *     <li>{@code SqlSource} 本身不可变且线程安全，{@code BoundSql} 仍按请求新建，参数互不干扰。</li>
  * </ul>
- * 容量固定（LRU），超出后淘汰最久未使用的条目，不会随 API 数量无界增长。
+ * 底层为 Caffeine（W-TinyLFU 有界淘汰）：读路径无全局锁，替代旧的
+ * synchronizedMap+LinkedHashMap，虚拟线程高并发下不再串行化缓存读取。
  *
  * @author yuqf
  */
@@ -31,13 +30,9 @@ public final class SqlSourceCache {
      */
     private static final int MAX_ENTRIES = 512;
 
-    private static final Map<String, SqlSource> CACHE = Collections.synchronizedMap(
-            new LinkedHashMap<>(256, 0.75f, true) {
-                @Override
-                protected boolean removeEldestEntry(Map.Entry<String, SqlSource> eldest) {
-                    return size() > MAX_ENTRIES;
-                }
-            });
+    private static final Cache<String, SqlSource> CACHE = Caffeine.newBuilder()
+            .maximumSize(MAX_ENTRIES)
+            .build();
 
     private SqlSourceCache() {
     }
@@ -51,7 +46,7 @@ public final class SqlSourceCache {
      * @return 命中的 SqlSource；未命中返回 null
      */
     public static SqlSource get(Configuration configuration, String script, Class<?> parameterType) {
-        return CACHE.get(key(configuration, script, parameterType));
+        return CACHE.getIfPresent(key(configuration, script, parameterType));
     }
 
     /**
@@ -68,14 +63,14 @@ public final class SqlSourceCache {
      * 当前缓存条目数（用于监控与单测断言）。
      */
     public static int size() {
-        return CACHE.size();
+        return CACHE.asMap().size();
     }
 
     /**
      * 清空缓存（测试用）。
      */
     public static void clear() {
-        CACHE.clear();
+        CACHE.invalidateAll();
     }
 
     private static String key(Configuration configuration, String script, Class<?> parameterType) {

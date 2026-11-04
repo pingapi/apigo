@@ -4,13 +4,13 @@ import cn.crabc.core.app.entity.BaseApp;
 import cn.crabc.core.app.entity.BaseAppApi;
 import cn.crabc.core.app.entity.vo.ApiComboBoxVO;
 import cn.crabc.core.app.mcp.McpTestFixture;
+import cn.crabc.core.app.mcp.WithMcpToken;
 import cn.crabc.core.app.mcp.support.McpToolSupport;
 import cn.crabc.core.app.service.system.IBaseApiInfoService;
 import cn.crabc.core.app.service.system.IBaseAppService;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
 import cn.crabc.core.datasource.util.PageInfo;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -41,6 +41,7 @@ import static org.mockito.Mockito.when;
  *
  * @author yuqf
  */
+@WithMcpToken
 class AppToolsTest {
 
     private IBaseAppService appService;
@@ -52,12 +53,6 @@ class AppToolsTest {
         appService = mock(IBaseAppService.class);
         apiInfoService = mock(IBaseApiInfoService.class);
         tools = new AppTools(appService, apiInfoService, McpTestFixture.support());
-        McpTestFixture.bindReadWriteContext();
-    }
-
-    @AfterEach
-    void tearDown() {
-        McpTestFixture.clearContext();
     }
 
     @Test
@@ -193,12 +188,11 @@ class AppToolsTest {
     @Test
     @DisplayName("安全：只读令牌不允许授权")
     void authorizeRejectedForReadOnlyToken() {
-        McpTestFixture.bindReadOnlyContext();
-
-        CustomException ex = assertThrows(CustomException.class,
-                () -> tools.appAuthorize(8L, List.of(57L), null, null));
-
-        assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
+        McpTestFixture.withReadOnlyContext(() -> {
+            CustomException ex = assertThrows(CustomException.class,
+                    () -> tools.appAuthorize(8L, List.of(57L), null, null));
+            assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
+        });
         verify(apiInfoService, never()).addChooseApi(any(BaseAppApi.class));
     }
 

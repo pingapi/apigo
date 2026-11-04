@@ -4,7 +4,7 @@ import cn.crabc.core.app.entity.BaseGroup;
 import cn.crabc.core.app.entity.vo.BaseGroupVO;
 import cn.crabc.core.app.service.system.IBaseGroupService;
 import cn.crabc.core.app.util.Result;
-import cn.crabc.core.app.util.UserThreadLocal;
+import cn.crabc.core.app.util.UserContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,7 +29,7 @@ public class BaseGroupController {
     public Result groupTree(Long apiId){
         // 分组树沿用"全部分组可见"的既有语义：默认分组由平台共享，
         // 写操作（改/删）已按 create_by 做归属校验。
-        List<BaseGroupVO> baseGroups = iBaseGroupService.groupTree(UserThreadLocal.getUserId(), apiId);
+        List<BaseGroupVO> baseGroups = iBaseGroupService.groupTree(UserContext.getUserId(), apiId);
         return Result.success(baseGroups);
     }
 
@@ -40,7 +40,7 @@ public class BaseGroupController {
      */
     @PostMapping
     public Result addGroup(@RequestBody BaseGroup baseGroup){
-        baseGroup.setCreateBy(UserThreadLocal.getUserId());
+        baseGroup.setCreateBy(UserContext.getUserId());
         iBaseGroupService.addGroup(baseGroup);
         return Result.success();
     }
@@ -52,7 +52,7 @@ public class BaseGroupController {
      */
     @PutMapping
     public Result updateGroup(@RequestBody BaseGroup baseGroup){
-        iBaseGroupService.updateGroup(baseGroup,UserThreadLocal.getUserId());
+        iBaseGroupService.updateGroup(baseGroup,UserContext.getUserId());
         return Result.success();
     }
 
@@ -63,7 +63,7 @@ public class BaseGroupController {
      */
     @DeleteMapping("/{groupId}")
     public Result deleteGroup(@PathVariable Integer groupId){
-        iBaseGroupService.delteGroup(groupId, UserThreadLocal.getUserId());
+        iBaseGroupService.delteGroup(groupId, UserContext.getUserId());
         return Result.success();
     }
 }

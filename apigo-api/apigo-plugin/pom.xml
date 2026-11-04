@@ -13,12 +13,14 @@
     <description>数据插件引擎：对 SQL 执行结果进行可配置的后处理</description>
 
     <properties>
-        <maven.compiler.source>25</maven.compiler.source>
-        <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
         <!-- Spring 上下文：插件以 @Component 注册，版本由 spring-boot-dependencies 管理 -->
         <dependency>
             <groupId>org.springframework</groupId>
@@ -45,12 +47,7 @@
 
     <build>
         <plugins>
-            <!-- Maven 3.9 默认 surefire 不支持 JUnit 5，需显式指定版本 -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.5.5</version>
-            </plugin>
+            <!-- surefire 版本与参数统一由根 pom 管理 -->
         </plugins>
     </build>
 

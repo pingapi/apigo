@@ -38,7 +38,7 @@ public class Md5Utils
         {
             return null;
         }
-        StringBuffer buf = new StringBuffer(hash.length * 2);
+        StringBuilder buf = new StringBuilder(hash.length * 2);
         int i;
 
         for (i = 0; i < hash.length; i++)
