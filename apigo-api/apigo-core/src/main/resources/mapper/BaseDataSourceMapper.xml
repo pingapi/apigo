@@ -98,6 +98,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <if test="password != null and password != ''">password,</if>
         <if test="classify != null and classify != ''">classify,</if>
         <if test="remarks != null and remarks != ''">remarks,</if>
+        <if test="extend != null and extend != ''">extend,</if>
         <if test="secretKey != null and secretKey != ''">secret_key,</if>
         <if test="createBy != null and createBy != ''">create_by,</if>
         <if test="minIdle != null">min_idle,</if>
@@ -119,6 +120,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <if test="password != null and password != ''">#{password},</if>
         <if test="classify != null and classify != ''">#{classify},</if>
         <if test="remarks != null and remarks != ''">#{remarks},</if>
+        <if test="extend != null and extend != ''">#{extend},</if>
         <if test="secretKey != null and secretKey != ''">#{secretKey},</if>
         <if test="createBy != null and createBy != ''">#{createBy},</if>
         <if test="minIdle != null">#{minIdle},</if>
@@ -144,6 +146,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="password != null and password != ''">password = #{password},</if>
             <if test="classify != null and classify != ''">classify = #{classify},</if>
             <if test="secretKey != null and secretKey != ''">secret_key = #{secretKey},</if>
+            <if test="extend != null">extend = #{extend},</if>
             <if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
             <if test="minIdle != null">min_idle=#{minIdle},</if>
             <if test="maxActive != null">max_active=#{maxActive},</if>

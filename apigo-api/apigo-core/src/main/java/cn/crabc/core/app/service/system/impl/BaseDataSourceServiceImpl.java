@@ -32,6 +32,7 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 
@@ -275,18 +276,26 @@ public class BaseDataSourceServiceImpl implements IBaseDataSourceService {
     }
 
     /**
-     * custom 类型按 JDBC URL 反推具体类型；其它类型保持原值。
+     * custom 类型按 JDBC URL 反推具体类型；其余类型统一归一化为"去空白 + 小写"。
+     * <p>
+     * 归一化必须在守卫之前完成：{@code "custom "}/{@code " DuckDB "} 这类带空白的类型
+     * 会让 {@code equalsIgnoreCase} 判断失效，从而绕过"仅管理员可建 DuckDB"的限制。
      */
     private void resolveDatasourceType(BaseDatasource dataSource) {
-        if (!"custom".equalsIgnoreCase(dataSource.getDatasourceType())) {
+        String datasourceType = dataSource.getDatasourceType();
+        if (datasourceType == null || datasourceType.isBlank()) {
             return;
         }
-        try {
-            dataSource.setDatasourceType(SQLUtil.getDataSourceType(dataSource.getJdbcUrl()));
-        } catch (Exception e) {
-            throw new CustomException(ErrorStatusEnum.FORBID_OPERATE.getCode(),
-                    "无法根据 JDBC URL 识别数据源类型：" + e.getMessage());
+        datasourceType = datasourceType.trim().toLowerCase(Locale.ROOT);
+        if ("custom".equals(datasourceType)) {
+            try {
+                datasourceType = SQLUtil.getDataSourceType(dataSource.getJdbcUrl());
+            } catch (Exception e) {
+                throw new CustomException(ErrorStatusEnum.FORBID_OPERATE.getCode(),
+                        "无法根据 JDBC URL 识别数据源类型：" + e.getMessage());
+            }
         }
+        dataSource.setDatasourceType(datasourceType);
     }
 
     /**
@@ -295,9 +304,11 @@ public class BaseDataSourceServiceImpl implements IBaseDataSourceService {
      * @param datasourceType 数据源类型
      * @param jdbcUrl        JDBC 连接串
      */
-    private void validateJdbcUrl(String datasourceType, String jdbcUrl) {        datasourceGuard.validateForManagement(datasourceType, jdbcUrl);
+    private void validateJdbcUrl(String datasourceType, String jdbcUrl) {
+        datasourceGuard.validateForManagement(datasourceType, jdbcUrl);
         // duckdb 是本地文件型引擎，可通过 SQL 读写服务器文件，仅允许管理员创建
-        if ("duckdb".equalsIgnoreCase(datasourceType) && !UserContext.isAdmin()) {
+        String type = datasourceType == null ? "" : datasourceType.trim();
+        if ("duckdb".equalsIgnoreCase(type) && !UserContext.isAdmin()) {
             throw new CustomException(ErrorStatusEnum.FORBID_OPERATE.getCode(),
                     "duckdb 为本地文件型引擎，仅管理员可创建该类型数据源");
         }

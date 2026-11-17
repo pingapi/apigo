@@ -4,7 +4,10 @@ import cn.crabc.core.app.entity.BaseDatasource;
 import cn.crabc.core.app.mapper.BaseDataSourceMapper;
 import cn.crabc.core.app.service.core.IBaseDataService;
 import cn.crabc.core.app.support.DatasourceGuard;
+import cn.crabc.core.app.util.UserContext;
 import cn.crabc.core.datasource.driver.DataSourceManager;
+import cn.crabc.core.datasource.enums.ErrorStatusEnum;
+import cn.crabc.core.datasource.exception.CustomException;
 import cn.crabc.core.spi.bean.BaseDataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -13,8 +16,12 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -81,6 +88,43 @@ class BaseDataSourceServiceImplTest {
         ArgumentCaptor<BaseDataSource> pooled = ArgumentCaptor.forClass(BaseDataSource.class);
         verify(dataSourceManager).createDataSource(pooled.capture());
         assertEquals(PLAIN, pooled.getValue().getPassword());
+    }
+
+    @Test
+    @DisplayName("非管理员：类型带空白伪装 custom 也不能绕过 DuckDB 管理员限制")
+    void nonAdminCannotBypassDuckDbAdminGuardByPaddedType() {
+        BaseDatasource dataSource = new BaseDatasource();
+        dataSource.setDatasourceName("伪装数据源");
+        dataSource.setDatasourceType("custom ");
+        dataSource.setJdbcUrl("jdbc:duckdb:/tmp/apigo-bypass.duckdb");
+        dataSource.setUsername("");
+        dataSource.setPassword(ENCODED);
+
+        CustomException ex = assertThrows(CustomException.class, () -> service.addDataSource(dataSource));
+
+        assertEquals(ErrorStatusEnum.FORBID_OPERATE.getCode(), ex.getCode());
+        verify(dataSourceMapper, never()).insertDataSource(any());
+        verifyNoInteractions(dataSourceManager);
+    }
+
+    @Test
+    @DisplayName("管理员：大小写/空白类型归一化后再落库，驱动按 DuckDB 路径处理")
+    void adminTypeIsNormalizedBeforePersist() {
+        BaseDatasource dataSource = new BaseDatasource();
+        dataSource.setDatasourceName("DuckDB 文件库");
+        dataSource.setDatasourceType(" DuckDB ");
+        dataSource.setJdbcUrl("jdbc:duckdb:/tmp/apigo-normalized.duckdb");
+        dataSource.setUsername("");
+        dataSource.setPassword(ENCODED);
+
+        UserContext.with(new UserContext.UserPrincipal("1", "admin", "admin"), () -> {
+            service.addDataSource(dataSource);
+            return null;
+        });
+
+        ArgumentCaptor<BaseDatasource> inserted = ArgumentCaptor.forClass(BaseDatasource.class);
+        verify(dataSourceMapper).insertDataSource(inserted.capture());
+        assertEquals("duckdb", inserted.getValue().getDatasourceType());
     }
 
     private BaseDatasource datasource() {

@@ -69,6 +69,7 @@ mybatis:
 
 pagehelper:
   autoRuntimeDialect: true   # 开启多数据源分页识别
+  dialectAlias: duckdb=postgresql
 
 
 crabc:

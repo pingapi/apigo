@@ -20,9 +20,10 @@ public class JdbcMetaData implements MetaDataMapper {
         List<Schema> catalogs = new ArrayList<>();
         try (Connection connection = JdbcDataSourceRouter.getDataSource(dataSourceId).getConnection();
              ResultSet resultSet = connection.getMetaData().getCatalogs()) {
+            boolean duckDb = isDuckDb(connection);
             while (resultSet.next()) {
                 String schemaName = resultSet.getString(1);
-                if (isSystemSchema(schemaName)) {
+                if (isSystemSchema(schemaName) || (duckDb && isDuckDbSystemCatalog(schemaName))) {
                     continue;
                 }
                 Schema schema = new Schema();
@@ -101,6 +102,17 @@ public class JdbcMetaData implements MetaDataMapper {
         return "information_schema".equalsIgnoreCase(schemaName) 
             || "performance_schema".equalsIgnoreCase(schemaName) 
             || "pg_catalog".equals(schemaName);
+    }
+
+    private boolean isDuckDb(Connection connection) throws SQLException {
+        return "DuckDB".equalsIgnoreCase(connection.getMetaData().getDatabaseProductName());
+    }
+
+    /**
+     * DuckDB 的 system/temp 是引擎内部 catalog（temp 用于临时表），不属于业务库。
+     */
+    private boolean isDuckDbSystemCatalog(String catalogName) {
+        return "system".equalsIgnoreCase(catalogName) || "temp".equalsIgnoreCase(catalogName);
     }
 
     private Table buildTable(ResultSet rs, String schema) throws SQLException {
