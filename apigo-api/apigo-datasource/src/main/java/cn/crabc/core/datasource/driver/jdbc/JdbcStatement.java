@@ -69,7 +69,8 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
             Pattern.compile("(?i)\\blimit\\b\\s*(\\d+|\\?|#\\{|\\$\\{)"),              // mysql/tidb：limit 10 / limit ? / limit #{size}
             Pattern.compile("(?i)\\boffset\\b\\s*(\\d+|\\?|#\\{|\\$\\{)"),             // postgres/sqlserver：offset 20
             Pattern.compile("(?i)\\brownum\\b\\s*(<=|<|=)\\s*\\d+"),                    // oracle：rownum <= 10
-            Pattern.compile("(?i)\\bfetch\\s+(first|next)\\b\\s*(\\d+|#\\{|\\$\\{)")     // ansi/of：fetch next 10 rows
+            Pattern.compile("(?i)\\bfetch\\s+(first|next)\\b\\s*(\\d+|#\\{|\\$\\{)"),    // ansi/of：fetch next 10 rows
+            Pattern.compile("(?i)\\btop\\s*(\\(\\s*)?\\d+")                              // sqlserver：top 10 / top(10)
     };
 
     /**
@@ -133,14 +134,10 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
             // 2. 强制限制分页大小，防止大结果集导致内存溢出
             pageSize = Math.min(pageSize, MAX_RESULT_LIMIT);
 
-            // 3. 分页查询配置
-            // 页面预览结果不需要查询总数
-            if ("preview".equals(execType)) {
-                PageHelper.startPage(pageNum, pageSize, false);
-            }else if (pageCount == 0 && !checkPage(sql)) {
-                PageHelper.startPage(pageNum, pageSize, false);
-            }else if (pageCount != 0 && !checkPage(sql)){
-                PageHelper.startPage(pageNum, pageSize, true);
+            // 3. 分页查询配置：预览与在线共用同一决策，SQL 自带分页时不再套 PageHelper
+            Boolean countMode = pageHelperCountMode(execType, pageCount, sql);
+            if (countMode != null) {
+                PageHelper.startPage(pageNum, pageSize, countMode);
             }
 
             // 4. 执行查询（数据源路由经 ScopedValue 绑定，作用域退出自动解绑）
@@ -552,6 +549,27 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
     }
 
     /**
+     * 决定是否启用 PageHelper 以及是否统计总数。
+     * <p>
+     * 预览与在线查询共用：SQL 已自带分页（limit/offset/rownum/fetch/top）时一律跳过
+     * PageHelper，否则会追加第二层 LIMIT，SQL Server 的 TOP 还会让 PageHelper 直接抛错。
+     *
+     * @param execType  执行类型，{@code preview} 表示页面预览
+     * @param pageCount 分页设置，0 表示不统计总数
+     * @param sql       原始 SQL
+     * @return null 不启用 PageHelper；false 仅分页；true 分页并统计总数
+     */
+    static Boolean pageHelperCountMode(String execType, int pageCount, String sql) {
+        if (checkPage(sql)) {
+            return null;
+        }
+        if ("preview".equals(execType)) {
+            return false;
+        }
+        return pageCount != 0;
+    }
+
+    /**
      * 判断 SQL 是否已自带分页。
      * <p>
      * 先剥离字符串字面量与注释再做关键字匹配：列名、别名、字面量（如 {@code '%limit 3%'}）
@@ -561,7 +579,7 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
      * @param sql 原始 SQL
      * @return true 表示已自带分页，无需再套 PageHelper
      */
-    private boolean checkPage(String sql) {
+    static boolean checkPage(String sql) {
         String cleaned = stripCommentsAndLiterals(sql);
         if (cleaned == null) {
             return false;

@@ -113,9 +113,7 @@ public class SQLUtil {
     public static Set<String> analyzeSQL(String sql, String dbType) {
         Set<String> aliasList = new HashSet<>();
         try {
-            if ("doris".equalsIgnoreCase(dbType) || "starrocks".equalsIgnoreCase(dbType)) {
-                dbType = "mysql";
-            }
+            dbType = normalizeParseDialect(dbType);
             List<SQLStatement> sqlStatementList = SQLUtils.parseStatements(sql, DbType.valueOf(dbType), false);
             if (sqlStatementList == null || sqlStatementList.isEmpty()) {
                 //throw new IllegalArgumentException("不是有效语句");
@@ -170,6 +168,24 @@ public class SQLUtil {
     }
 
     /**
+     * 归一到 Druid 可识别的解析方言。
+     * <p>
+     * Druid 的 DbType 枚举不含 opengauss/duckdb/tdsql/dolphindb/custom，直接 valueOf
+     * 会抛 IllegalArgumentException。这里只做语法解析的归一，不影响 SQL 实际执行。
+     */
+    private static String normalizeParseDialect(String dbType) {
+        if (dbType == null) {
+            return null;
+        }
+        String type = dbType.trim().toLowerCase(Locale.ROOT);
+        return switch (type) {
+            case "doris", "starrocks", "tdsql", "dolphindb", "custom" -> "mysql";
+            case "opengauss", "duckdb" -> "postgresql";
+            default -> type;
+        };
+    }
+
+    /**
      * 解析SQL
      *
      * @param sql
@@ -181,6 +197,7 @@ public class SQLUtil {
         Set<String> tableName = new HashSet<>();
         List<String> operateName = new ArrayList<>();
         try {
+            dbType = normalizeParseDialect(dbType);
             //格式化
             String sqlFormat = SQLUtils.format(sql, dbType);
             List<SQLStatement> stmtList = SQLUtils.parseStatements(sqlFormat, dbType);
@@ -197,7 +214,10 @@ public class SQLUtil {
                 case "oracle":
                     visitor = new OracleSchemaStatVisitor();
                     break;
-                case "openguass":
+                case "dm":
+                    // DM 为 Oracle 兼容语法，复用 Oracle 解析器
+                    visitor = new OracleSchemaStatVisitor();
+                    break;
                 case "postgresql":
                     visitor = new PGSchemaStatVisitor();
                     break;

@@ -199,6 +199,7 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
                 } else {
                     connection.setSchema(targetSchema);
                 }
+                verifySchemaSwitched(connection, catalogMode, targetSchema, dataSourceType);
                 log.debug("连接切换完成: {} -> {}", original, targetSchema);
                 // 交给调用方的连接在 close 时还原，保证本条SQL执行期间一直是目标库/Schema
                 return (Connection) Proxy.newProxyInstance(
@@ -207,10 +208,31 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
                         new SchemaRestoreHandler(connection, catalogMode, original));
             }
             return connection;
+        } catch (AbstractMethodError e) {
+            // jTDS 等驱动未实现 setSchema/getSchema，直接抛 Error，需转成可诊断的 SQL 异常
+            closeQuietly(connection);
+            log.error("数据源驱动未实现库/Schema切换, dataSourceKey: {}", dataSourceKey, e);
+            throw new SQLException("数据源类型 " + dataSourceType + " 的 JDBC 驱动不支持切换库/Schema（目标: "
+                    + targetSchema + "），请升级驱动或移除接口上的 Schema 配置", e);
         } catch (SQLException | RuntimeException e) {
             closeQuietly(connection);
             log.error("数据源连接切换库/Schema失败, dataSourceKey: {}", dataSourceKey, e);
-            throw new SQLException(e);
+            throw new SQLException(e.getMessage() == null ? e.toString() : e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 回读校验切换结果。
+     * <p>
+     * mssql-jdbc、DolphinDB 的 setSchema 是静默空实现，不校验会让 SQL 在旧 Schema 上执行。
+     * 大小写差异视为成功：Oracle/DM 等驱动会把未加引号的标识符大写化。
+     */
+    private void verifySchemaSwitched(Connection connection, boolean catalogMode,
+                                      String targetSchema, String dataSourceType) throws SQLException {
+        String actual = catalogMode ? connection.getCatalog() : connection.getSchema();
+        if (actual == null || !actual.equalsIgnoreCase(targetSchema)) {
+            throw new SQLException("数据源类型 " + dataSourceType + " 的 JDBC 驱动切换库/Schema 未生效（目标: "
+                    + targetSchema + "，实际: " + actual + "），已拒绝执行以避免落到错误的库/Schema");
         }
     }
 

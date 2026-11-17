@@ -113,7 +113,10 @@ public class BaseConstant {
 
     /**
      * 需要指定catalog的数据源
+     * <p>
+     * clickhouse 的 JDBC 驱动默认 databaseTerm=catalog，只有 setCatalog 生效，
+     * 且 getSchemas 在默认配置下恒为空，因此元数据与执行都走 catalog 语义。
      */
-    public static final List<String> CATALOG_DATA_SOURCE = Arrays.asList("sybase","mysql","mariadb","doris","starrocks","tidb","tdsql");
+    public static final List<String> CATALOG_DATA_SOURCE = Arrays.asList("sybase","mysql","mariadb","doris","starrocks","tidb","tdsql","clickhouse");
 
 }
