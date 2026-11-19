@@ -17,7 +17,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -199,8 +198,7 @@ public class MetaDataTools {
     }
 
     private boolean isCatalogType(String datasourceType) {
-        return datasourceType != null
-                && BaseConstant.CATALOG_DATA_SOURCE.contains(datasourceType.toLowerCase(Locale.ROOT));
+        return BaseConstant.isCatalogDataSource(datasourceType);
     }
 
     /**

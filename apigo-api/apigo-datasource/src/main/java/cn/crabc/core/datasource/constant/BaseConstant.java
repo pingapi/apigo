@@ -2,6 +2,7 @@ package cn.crabc.core.datasource.constant;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * 常量类
@@ -117,6 +118,25 @@ public class BaseConstant {
      * clickhouse 的 JDBC 驱动默认 databaseTerm=catalog，只有 setCatalog 生效，
      * 且 getSchemas 在默认配置下恒为空，因此元数据与执行都走 catalog 语义。
      */
-    public static final List<String> CATALOG_DATA_SOURCE = Arrays.asList("sybase","mysql","mariadb","doris","starrocks","tidb","tdsql","clickhouse");
+    public static final List<String> CATALOG_DATA_SOURCE = Arrays.asList("sybase", "mysql", "mariadb", "doris",
+            "starrocks", "tidb", "tdsql", "clickhouse", "oceanbase");
+
+    /**
+     * 判断数据源是否使用 catalog 语义。
+     * <p>
+     * 类型可能来自库配置、路由 key 或请求参数，大小写/空白不可信；
+     * 统一归一化后再判断，避免 "MySQL " 这类值被误判为 schema 语义，
+     * 而 MySQL 驱动的 setSchema 是静默空实现，会导致 SQL 落到连接池默认库。
+     *
+     * @param dataSourceType 数据源类型
+     * @return true 表示需要按 catalog 切换
+     */
+    public static boolean isCatalogDataSource(String dataSourceType) {
+        if (dataSourceType == null || dataSourceType.isBlank()) {
+            return false;
+        }
+        String type = dataSourceType.trim().toLowerCase(Locale.ROOT);
+        return CATALOG_DATA_SOURCE.contains(type);
+    }
 
 }

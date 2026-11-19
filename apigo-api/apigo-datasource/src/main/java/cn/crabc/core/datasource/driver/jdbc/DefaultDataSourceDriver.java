@@ -86,7 +86,7 @@ public abstract class DefaultDataSourceDriver implements DataSourceDriver {
 
             // 仅在初始化成功时才替换路由池中的实例
             if (initSuccess) {
-                JdbcDataSourceRouter.setDataSource(datasourceId, newDataSource);
+                JdbcDataSourceRouter.setDataSource(datasourceId, newDataSource, ds.getDatasourceType());
                 // 所有权已转移给路由池，本方法不再负责关闭
                 newDataSource = null;
             }

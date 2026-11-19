@@ -84,7 +84,9 @@ public class BaseDataServiceImpl implements IBaseDataService {
         if (params == null) {
             params = new HashMap<>();
         }
-        if (datasourceType != null && !params.containsKey(BaseConstant.DATA_SOURCE_TYPE)) {
+        if (datasourceType != null && !datasourceType.isBlank()) {
+            // 以服务端数据源配置为准覆盖入参：请求体可携带 data_source_type，
+            // 若让客户端覆盖，会把 MySQL 的 catalog 切换改成 setSchema 空实现，SQL 静默落到默认库
             params.put(BaseConstant.DATA_SOURCE_TYPE, datasourceType);
         }
 

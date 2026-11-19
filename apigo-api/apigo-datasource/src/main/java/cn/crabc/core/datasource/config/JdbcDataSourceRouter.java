@@ -88,6 +88,8 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
             return;
         }
         DataSource dataSource = DataSourceManager.DATA_SOURCE_POOL_JDBC.remove(id);
+        // 类型登记与池同生命周期：池没了还留着类型，会导致后续排查/切换读到过期元信息
+        DataSourceManager.unregisterDataSourceType(id);
         if (dataSource == null) {
             return;
         }
@@ -125,12 +127,16 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
     }
 
     /**
-     * 添加数据源
+     * 添加数据源，并登记其服务器端类型。
      *
-     * @param dataSourceId
+     * @param dataSourceId   数据源ID
+     * @param dataSource     连接池
+     * @param dataSourceType 数据源类型（执行时据此选择 catalog/schema 语义）
      **/
-    public static void setDataSource(String dataSourceId, DataSource dataSource) {
-        DataSourceManager.DATA_SOURCE_POOL_JDBC.put(dataSourceId, dataSource);
+    public static void setDataSource(String dataSourceId, DataSource dataSource, String dataSourceType) {
+        String id = getDataSourceId(dataSourceId);
+        DataSourceManager.DATA_SOURCE_POOL_JDBC.put(id, dataSource);
+        DataSourceManager.registerDataSourceType(id, dataSourceType);
     }
 
     /**
@@ -171,6 +177,25 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
     }
 
     /**
+     * 批量/脚本执行入口：直接获取已按 schema 切换并带归还还原能力的连接。
+     * <p>
+     * 与单条 SQL 共用同一套切换逻辑（类型以建池登记为准 + 回读校验 + close 时还原），
+     * 避免批量路径直接 setCatalog/setSchema 时静默不生效，SQL 落到连接池默认库。
+     *
+     * @param dataSourceId 数据源ID或路由 key
+     * @param schema       目标库/Schema，为空时沿用连接默认值
+     * @return 连接（发生切换时为 close 时自动还原的代理）
+     * @throws SQLException 切换失败或驱动不支持
+     */
+    public static Connection getSchemaConnection(String dataSourceId, String schema) throws SQLException {
+        Connection connection = getDataSource(dataSourceId).getConnection();
+        if (schema == null || schema.isBlank()) {
+            return connection;
+        }
+        return switchTargetSchema(connection, getDataSourceId(dataSourceId), null, schema, dataSourceId);
+    }
+
+    /**
      * 按路由 key（dataSourceId:dataSourceType:schema）切换连接的库/Schema。
      *
      * 切换必须在 SQL 执行期间保持有效，因此不在本方法内还原，而是返回代理连接，
@@ -181,15 +206,44 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
         if (dataSourceKey == null) {
             return connection;
         }
-        String[] dataSourceStr = dataSourceKey.toString().split(":");
+        String key = dataSourceKey.toString();
+        // 限制为 3 段：schema 名本身含冒号时不会被截断
+        String[] dataSourceStr = key.split(":", 3);
         // key 缺少 schema 段时不切换，保持数据源默认库/Schema
-        if (dataSourceStr.length < 3) {
+        if (dataSourceStr.length < 3 || dataSourceStr[2].isBlank()) {
             return connection;
         }
-        String dataSourceType = dataSourceStr[1];
-        String targetSchema = dataSourceStr[2];
+        return switchTargetSchema(connection, dataSourceStr[0], dataSourceStr[1], dataSourceStr[2], key);
+    }
+
+    /**
+     * 切换连接的目标库/Schema，失败时关闭连接并抛出可诊断异常。
+     * <p>
+     * 类型优先取建池时登记的服务器端类型，key 里的类型仅作为兜底：
+     * 请求参数可伪造/缺失类型，若据此判断，MySQL 会走 setSchema 空实现而静默不切换。
+     *
+     * @param connection    连接池连接
+     * @param dataSourceId  数据源ID
+     * @param keyType       路由 key 中的类型（兜底）
+     * @param targetSchema  目标库/Schema
+     * @param logKey        日志上下文（数据源ID或路由 key）
+     * @return 原始连接（无需切换）或 close 时还原的代理连接
+     */
+    private static Connection switchTargetSchema(Connection connection, String dataSourceId, String keyType,
+                                                 String targetSchema, String logKey) throws SQLException {
+        String dataSourceType = DataSourceManager.getDataSourceType(dataSourceId);
+        if (dataSourceType == null || dataSourceType.isBlank()) {
+            dataSourceType = keyType;
+        }
+        if (dataSourceType == null || dataSourceType.isBlank()) {
+            // 无法判定 catalog/schema 语义时绝不猜测：猜测失败即静默打错库，直接失败更安全
+            closeQuietly(connection);
+            log.error("无法确定数据源类型，拒绝切换库/Schema, dataSourceKey: {}, targetSchema: {}", logKey, targetSchema);
+            throw new CustomException(ErrorStatusEnum.API_SQL_ERROR.getCode(),
+                    "无法确定数据源类型，已拒绝执行以避免 SQL 落到连接池默认库/Schema（目标: " + targetSchema + "）");
+        }
         // 库/Schema 语义区分：MySQL 系用 catalog，其余用 schema
-        boolean catalogMode = BaseConstant.CATALOG_DATA_SOURCE.contains(dataSourceType);
+        boolean catalogMode = BaseConstant.isCatalogDataSource(dataSourceType);
 
         try {
             String original = catalogMode ? connection.getCatalog() : connection.getSchema();
@@ -200,7 +254,7 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
                     connection.setSchema(targetSchema);
                 }
                 verifySchemaSwitched(connection, catalogMode, targetSchema, dataSourceType);
-                log.debug("连接切换完成: {} -> {}", original, targetSchema);
+                log.debug("连接切换完成: {} -> {}, dataSourceKey: {}", original, targetSchema, logKey);
                 // 交给调用方的连接在 close 时还原，保证本条SQL执行期间一直是目标库/Schema
                 return (Connection) Proxy.newProxyInstance(
                         Connection.class.getClassLoader(),
@@ -211,12 +265,12 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
         } catch (AbstractMethodError e) {
             // jTDS 等驱动未实现 setSchema/getSchema，直接抛 Error，需转成可诊断的 SQL 异常
             closeQuietly(connection);
-            log.error("数据源驱动未实现库/Schema切换, dataSourceKey: {}", dataSourceKey, e);
+            log.error("数据源驱动未实现库/Schema切换, dataSourceKey: {}", logKey, e);
             throw new SQLException("数据源类型 " + dataSourceType + " 的 JDBC 驱动不支持切换库/Schema（目标: "
                     + targetSchema + "），请升级驱动或移除接口上的 Schema 配置", e);
         } catch (SQLException | RuntimeException e) {
             closeQuietly(connection);
-            log.error("数据源连接切换库/Schema失败, dataSourceKey: {}", dataSourceKey, e);
+            log.error("数据源连接切换库/Schema失败, dataSourceKey: {}", logKey, e);
             throw new SQLException(e.getMessage() == null ? e.toString() : e.getMessage(), e);
         }
     }
@@ -227,8 +281,8 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
      * mssql-jdbc、DolphinDB 的 setSchema 是静默空实现，不校验会让 SQL 在旧 Schema 上执行。
      * 大小写差异视为成功：Oracle/DM 等驱动会把未加引号的标识符大写化。
      */
-    private void verifySchemaSwitched(Connection connection, boolean catalogMode,
-                                      String targetSchema, String dataSourceType) throws SQLException {
+    private static void verifySchemaSwitched(Connection connection, boolean catalogMode,
+                                             String targetSchema, String dataSourceType) throws SQLException {
         String actual = catalogMode ? connection.getCatalog() : connection.getSchema();
         if (actual == null || !actual.equalsIgnoreCase(targetSchema)) {
             throw new SQLException("数据源类型 " + dataSourceType + " 的 JDBC 驱动切换库/Schema 未生效（目标: "
@@ -239,7 +293,7 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
     /**
      * 关闭连接，忽略关闭异常
      */
-    private void closeQuietly(Connection connection) {
+    private static void closeQuietly(Connection connection) {
         try {
             if (connection != null && !connection.isClosed()) {
                 connection.close();
@@ -315,7 +369,7 @@ public class JdbcDataSourceRouter extends AbstractRoutingDataSource {
      * 对比方法
      *
      */
-    private boolean equalsIgnoreNull(String original, String target) {
+    private static boolean equalsIgnoreNull(String original, String target) {
         if (original == null && target == null) {
             return true;
         }

@@ -17,6 +17,7 @@ package cn.crabc.core.datasource.driver.jdbc;
 
 import cn.crabc.core.datasource.config.JdbcDataSourceRouter;
 import cn.crabc.core.datasource.constant.BaseConstant;
+import cn.crabc.core.datasource.driver.DataSourceManager;
 import cn.crabc.core.datasource.enums.ErrorStatusEnum;
 import cn.crabc.core.datasource.exception.CustomException;
 import cn.crabc.core.datasource.mapper.BaseDataHandleMapper;
@@ -268,8 +269,8 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
         boolean autoCommitChanged = false;
         Integer oldNetworkTimeout = null;
         try {
-            // 2. 获取数据库连接
-            connection = getConnection(dataSourceKey, schema, paramsMap);
+            // 2. 获取数据库连接（统一由路由层完成 catalog/schema 切换与校验）
+            connection = JdbcDataSourceRouter.getSchemaConnection(dataSourceKey, schema);
             oldAutoCommit = connection.getAutoCommit();
 
             // 3. 设置连接超时，防止长时间占用连接
@@ -401,26 +402,15 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
                     "接口未配置数据源，已终止执行");
         }
         if (schema != null && !schema.isEmpty()) {
-            String dataSourceType = (String)paramsMap.getOrDefault(BaseConstant.DATA_SOURCE_TYPE, "");
+            // 类型只用于日志/key 兜底：权威类型由建池登记，路由层不信任请求参数
+            String dataSourceType = DataSourceManager.getDataSourceType(dataSourceId);
+            if (dataSourceType == null) {
+                Object typeValue = paramsMap.get(BaseConstant.DATA_SOURCE_TYPE);
+                dataSourceType = typeValue == null ? "" : typeValue.toString().trim().toLowerCase(Locale.ROOT);
+            }
             return String.format("%s:%s:%s", dataSourceId, dataSourceType, schema);
         }
         return dataSourceId;
-    }
-
-    /**
-     * 批量DML直接取同一个物理连接，事务边界才能覆盖全部脚本。
-     */
-    private Connection getConnection(String dataSourceKey, String schema, Map<String, Object> paramsMap) throws SQLException {
-        Connection connection = JdbcDataSourceRouter.getDataSource(dataSourceKey).getConnection();
-        if (schema != null && !schema.isEmpty()) {
-            String dataSourceType = (String) paramsMap.getOrDefault(BaseConstant.DATA_SOURCE_TYPE, "");
-            if (BaseConstant.CATALOG_DATA_SOURCE.contains(dataSourceType)) {
-                connection.setCatalog(schema);
-            } else {
-                connection.setSchema(schema);
-            }
-        }
-        return connection;
     }
 
     /**

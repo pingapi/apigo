@@ -39,7 +39,7 @@ public class MetaDataQueryService {
     @Cacheable(cacheNames = "schemaCache", cacheManager = "metaDataManager", key = "#datasourceId+'_'+#catalog")
     public List getSchemas(String datasourceId, String datasourceType, String catalog) {
         MetaDataMapper metaData = dataSourceManager.getMetaData(datasourceId);
-        if (BaseConstant.CATALOG_DATA_SOURCE.contains(datasourceType)) {
+        if (BaseConstant.isCatalogDataSource(resolveType(datasourceId, datasourceType))) {
             return metaData.getCatalogs(datasourceId);
         }
         return metaData.getSchemas(datasourceId, catalog);
@@ -56,7 +56,7 @@ public class MetaDataQueryService {
     @Cacheable(cacheNames = "tableCache", cacheManager = "metaDataManager", key = "#datasourceId+'_'+#schema")
     public List<Table> getTables(String datasourceId, String schema, String datasourceType) {
         MetaDataMapper metaData = dataSourceManager.getMetaData(datasourceId);
-        if (BaseConstant.CATALOG_DATA_SOURCE.contains(datasourceType)) {
+        if (BaseConstant.isCatalogDataSource(resolveType(datasourceId, datasourceType))) {
             return metaData.getTables(datasourceId, schema, null);
         }
         return metaData.getTables(datasourceId, null, schema);
@@ -74,9 +74,18 @@ public class MetaDataQueryService {
     @Cacheable(cacheNames = "columnsCache", cacheManager = "metaDataManager", key = "#datasourceId+'_'+#schema+'_'+#table")
     public List<Column> getColumns(String datasourceId, String schema, String table, String datasourceType) {
         MetaDataMapper metaData = dataSourceManager.getMetaData(datasourceId);
-        if (BaseConstant.CATALOG_DATA_SOURCE.contains(datasourceType)) {
+        if (BaseConstant.isCatalogDataSource(resolveType(datasourceId, datasourceType))) {
             return metaData.getColumns(datasourceId, schema, null, table);
         }
         return metaData.getColumns(datasourceId, null, schema, table);
+    }
+
+    /**
+     * 类型以建池登记的服务器端值为准，请求参数仅作兜底：
+     * 前端可能漏传类型或对非 MySQL 数据源回落成 "mysql"，据此判断会取错 catalog/schema。
+     */
+    private String resolveType(String datasourceId, String datasourceType) {
+        String registeredType = DataSourceManager.getDataSourceType(datasourceId);
+        return registeredType != null ? registeredType : datasourceType;
     }
 }
