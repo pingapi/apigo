@@ -21,9 +21,10 @@
         <java.version>25</java.version>
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <spring-boot.version>4.1.2</spring-boot.version>
+        <spring-boot.version>4.2.0</spring-boot.version>
         <spring-boot.mybatis.version>4.1.0</spring-boot.mybatis.version>
-        <mybatis-plus.version>3.5.17</mybatis-plus.version>
+        <spring-ai.version>2.1.0</spring-ai.version>
+        <mybatis-plus.version>3.5.18</mybatis-plus.version>
         <pagehelper.boot.version>4.1.1</pagehelper.boot.version>
         <spring-boot.druid.version>1.2.28</spring-boot.druid.version>
         <fastjson.version>2.0.66</fastjson.version>
@@ -31,7 +32,6 @@
         <commons-pool2.version>2.13.1</commons-pool2.version>
         <lombok.version>1.18.48</lombok.version>
         <jdk18on.version>1.80</jdk18on.version>
-        <spring-ai.version>2.0.2</spring-ai.version>
     </properties>
     <dependencyManagement>
         <dependencies>
