@@ -13,7 +13,7 @@
 # Introduction
 **ApiGo** is an Multi-database plug-in data source framework, SQL2API. It deeply integrates Spring Boot and MyBatis to deliver dynamic data sources, dynamic SQL, functions and stored procedures.
 It supports MCP integration with AI office platforms such as WorkBuddy, and ChatGPT,
-and supports SQL/NoSQL data sources including MySQL, Oracle, PostgreSQL, SQL Server, TiDB, Doris and Hive.
+and supports SQL/NoSQL data sources including MySQL, Oracle, PostgreSQL, SQL Server, TiDB, Doris and DuckDB.
 After writing SQL online with visual tooling, you can instantly generate an API and expose it as a service, with one-click online/offline switching. This reduces the SQL work for common APIs and lets developers focus on more complex business logic.
 It supports MyBatis tag syntax (e.g. `if`), data masking, data transformation, national cryptographic encryption, collaborative development, API orchestration and more. It can be integrated with microservice gateways to support third-party APIs, authentication, rate limiting, caching, alerting/monitoring and unified logging — a one-stop API data service that
 helps enterprises upgrade the value of their data assets and becomes an important driver of digital transformation.
