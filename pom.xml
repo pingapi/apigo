@@ -17,7 +17,7 @@
 
     <properties>
         <!-- apigo 版本-->
-        <revision>6.5.0</revision>
+        <revision>6.5.2</revision>
         <java.version>25</java.version>
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

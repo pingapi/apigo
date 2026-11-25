@@ -14,7 +14,7 @@
 ## 介绍
 **ApiGo** 是多数据库插件化数据源框架，企业项目脚手架，sql2Api等。深度整合SpringBoot和Mybatis实现动态数据源和动态SQL、函数和存储过程。
 支持 WorkBuddy、千问办公、豆包等 AI 办公平台 MCP 接入，
-支持接入（mysql、oracle、postgresql、sqlserver、达梦、TiDB、es和hive）等SQL或/NoSQL数据源，
+支持接入（mysql、oracle、postgresql、达梦、TiDB、OpenGauss、StarRocks）等SQL或/NoSQL数据源，
 在线可视化编写SQL后即可快速生成接口对外提供服务，接口一键上下线。减少通用接口的SQL编写，让开发人员专注更复杂的业务逻辑实现。
 支持Mybatis中if等标签语法、数据脱敏、数据转换、国密加密、协同开发、接口编排等功能，可集成微服务网关支持接入第三方接口、权限认证、限流、缓存、告警监控和统一日志等一站式API数据服务,
 助力于企业数据资产价值升级，成为企业数字化转型的重要推动力。
@@ -42,14 +42,15 @@ cn.crabc
 │     └── apigo-core        // 基础模块
 │           └── static       // 前端静态页面 [9377]
 │     └── apigo-datasource   // 数据源加载模块
-│     └── apigo-spi          // 插件定义模块
+│      └── apigo-plugin      // 数据插件
+│     └── apigo-spi          // 数据源抽象模块
 ├── apigo-spring-boot-starter // 第三方项目maven集成依赖包
 ├── db                       // SQL脚本
 ├──pom.xml                   // 依赖
 ~~~
 
 ## 版本说明
-dev 分支框架 SpringBoot 4.1.2，**要求 JDK 25（编译目标为 25，JDK 21 无法构建与运行）** \
+dev 分支框架 SpringBoot 4.2.0，**要求 JDK 25** \
 jdk-8 分支框架SpringBoot是2.7.x，jdk-8
 
 构建要求：
@@ -115,7 +116,7 @@ gitee: https://gitee.com/pingapi/apigo
 <dependency>
     <groupId>cn.crabc</groupId>
     <artifactId>apigo-spring-boot-starter</artifactId>
-    <version>6.5.0</version>
+    <version>6.5.2</version>
 </dependency>
 ```
 在程序启动类中添加下面注解

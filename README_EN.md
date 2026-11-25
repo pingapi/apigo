@@ -13,7 +13,7 @@
 # Introduction
 **ApiGo** is an Multi-database plug-in data source framework, SQL2API. It deeply integrates Spring Boot and MyBatis to deliver dynamic data sources, dynamic SQL, functions and stored procedures.
 It supports MCP integration with AI office platforms such as WorkBuddy, and ChatGPT,
-and supports SQL/NoSQL data sources including MySQL, Oracle, PostgreSQL, SQL Server, TiDB, ES and Hive.
+and supports SQL/NoSQL data sources including MySQL, Oracle, PostgreSQL, SQL Server, TiDB, Doris and Hive.
 After writing SQL online with visual tooling, you can instantly generate an API and expose it as a service, with one-click online/offline switching. This reduces the SQL work for common APIs and lets developers focus on more complex business logic.
 It supports MyBatis tag syntax (e.g. `if`), data masking, data transformation, national cryptographic encryption, collaborative development, API orchestration and more. It can be integrated with microservice gateways to support third-party APIs, authentication, rate limiting, caching, alerting/monitoring and unified logging — a one-stop API data service that
 helps enterprises upgrade the value of their data assets and becomes an important driver of digital transformation.
@@ -41,14 +41,15 @@ cn.crabc
 │     └── apigo-core        // Core module
 │           └── static       // Frontend static pages [9377]
 │     └── apigo-datasource   // Data source loading module
-│     └── apigo-spi          // Plugin definition module
+│     └── apigo-plugin       // Data Plugin module
+│     └── apigo-spi          // DB Plugin definition module
 ├── crabc-spring-boot-starter // Maven dependency for third-party project integration
 ├── db                       // SQL scripts
 ├──pom.xml                   // Dependencies
 ~~~
 
 ## Version Notes
-The `dev` branch uses Spring Boot 4.1.1 and requires JDK 21 or above. \
+The `dev` branch uses Spring Boot 4.2.0 and requires JDK 21 or above. \
 The `jdk-8` branch uses Spring Boot 2.7.x and requires JDK 8.
 
 ## Community Edition Benchmark Report
@@ -106,7 +107,7 @@ The enterprise edition is more powerful — for commercial use please join the g
 <dependency>
     <groupId>cn.crabc</groupId>
     <artifactId>apigo-spring-boot-starter</artifactId>
-    <version>6.5.0</version>
+    <version>6.5.2</version>
 </dependency>
 ```
 Add the following annotation to your application startup class:
