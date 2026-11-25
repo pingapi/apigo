@@ -6,6 +6,7 @@ import org.apache.ibatis.plugin.Interceptor;
 import org.apache.ibatis.plugin.Intercepts;
 import org.apache.ibatis.plugin.Invocation;
 import org.apache.ibatis.plugin.Signature;
+import org.apache.ibatis.session.ResultHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -14,40 +15,90 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Map;
+import java.util.concurrent.Executor;
 
 /**
  * 接口级脚本超时拦截器。
  *
  * <p>MyBatis 的 {@code @Options(timeout)} 在启动时就固化在 MappedStatement 上，
  * 这里在 prepare 完成后按当前请求参数覆盖语句超时，实现按接口配置超时时间。
+ * <p>
+ * 连接级网络超时在语句执行阶段设置、执行结束后立即恢复：连接来自连接池，
+ * Druid 归还连接时不会重置 networkTimeout，不恢复会把本次接口的超时残留给后续请求。
  */
 @Component
-@Intercepts(@Signature(type = StatementHandler.class, method = "prepare", args = {Connection.class, Integer.class}))
+@Intercepts({
+        @Signature(type = StatementHandler.class, method = "prepare", args = {Connection.class, Integer.class}),
+        @Signature(type = StatementHandler.class, method = "query", args = {Statement.class, ResultHandler.class}),
+        @Signature(type = StatementHandler.class, method = "update", args = {Statement.class}),
+        @Signature(type = StatementHandler.class, method = "batch", args = {Statement.class})
+})
 public class ScriptTimeoutInterceptor implements Interceptor {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptTimeoutInterceptor.class);
 
+    /**
+     * 设置网络超时用的执行器。
+     * <p>
+     * 必须非空：MySQL Connector/J 对 {@code setNetworkTimeout(null, ...)} 直接抛 SQLException，
+     * 用 null 会让连接级兜底静默失效。同步执行可保证 socket 超时在语句执行前就已生效。
+     */
+    private static final Executor NETWORK_TIMEOUT_EXECUTOR = Runnable::run;
+
     @Override
     public Object intercept(Invocation invocation) throws Throwable {
+        if ("prepare".equals(invocation.getMethod().getName())) {
+            return interceptPrepare(invocation);
+        }
+        return interceptExecute(invocation);
+    }
+
+    /**
+     * prepare 阶段：设置行数上限与语句级超时。
+     */
+    private Object interceptPrepare(Invocation invocation) throws Throwable {
         Object result = invocation.proceed();
         if (!(result instanceof Statement statement)) {
             return result;
         }
         applyMaxRows(statement);
         Integer timeoutSeconds = resolveTimeoutSeconds(invocation);
-        if (timeoutSeconds == null) {
-            return result;
+        if (timeoutSeconds != null) {
+            applyQueryTimeout(statement, timeoutSeconds);
         }
+        return result;
+    }
+
+    /**
+     * 执行阶段：设置连接级网络超时，执行结束后恢复原值。
+     */
+    private Object interceptExecute(Invocation invocation) throws Throwable {
+        Integer timeoutSeconds = resolveTimeoutSeconds(invocation);
+        Object[] args = invocation.getArgs();
+        if (timeoutSeconds == null || args.length == 0 || !(args[0] instanceof Statement statement)) {
+            return invocation.proceed();
+        }
+        Integer previousTimeout = applyNetworkTimeout(statement, timeoutSeconds);
+        try {
+            return invocation.proceed();
+        } finally {
+            restoreNetworkTimeout(statement, previousTimeout);
+        }
+    }
+
+    /**
+     * 语句级超时，驱动不支持时降级为原有执行行为。
+     *
+     * @param statement      已创建的语句
+     * @param timeoutSeconds 超时时间（秒）
+     */
+    private void applyQueryTimeout(Statement statement, int timeoutSeconds) {
         try {
             statement.setQueryTimeout(timeoutSeconds);
         } catch (SQLException | RuntimeException e) {
             // 个别驱动不支持语句超时，降级为原有执行行为，不能影响正常请求
             log.debug("设置SQL语句超时失败，超时时间：{}秒", timeoutSeconds, e);
         }
-        // 连接级兜底：setQueryTimeout 不覆盖网络半开/读阻塞场景；
-        // 连接池归还时会自动重置 networkTimeout，无需手动还原
-        applyNetworkTimeout(statement, timeoutSeconds);
-        return result;
     }
 
     /**
@@ -55,16 +106,41 @@ public class ScriptTimeoutInterceptor implements Interceptor {
      *
      * @param statement      已创建的语句
      * @param timeoutSeconds 超时时间（秒）
+     * @return 原超时时间（毫秒）；设置失败返回 null，表示无需恢复
      */
-    private void applyNetworkTimeout(Statement statement, int timeoutSeconds) {
+    private Integer applyNetworkTimeout(Statement statement, int timeoutSeconds) {
         try {
             Connection connection = statement.getConnection();
-            if (connection != null) {
-                connection.setNetworkTimeout(null, timeoutSeconds * 1000);
+            if (connection == null) {
+                return null;
             }
+            int previousTimeout = connection.getNetworkTimeout();
+            connection.setNetworkTimeout(NETWORK_TIMEOUT_EXECUTOR, timeoutSeconds * 1000);
+            return previousTimeout;
         } catch (SQLException | RuntimeException e) {
             // 驱动不支持时降级，不影响正常请求
             log.debug("设置连接级网络超时失败，超时时间：{}秒", timeoutSeconds, e);
+            return null;
+        }
+    }
+
+    /**
+     * 恢复连接级超时，避免池化连接把本次接口的超时带给后续请求。
+     *
+     * @param statement       执行完毕的语句
+     * @param previousTimeout 原超时时间（毫秒），null 表示无需恢复
+     */
+    private void restoreNetworkTimeout(Statement statement, Integer previousTimeout) {
+        if (previousTimeout == null) {
+            return;
+        }
+        try {
+            Connection connection = statement.getConnection();
+            if (connection != null) {
+                connection.setNetworkTimeout(NETWORK_TIMEOUT_EXECUTOR, previousTimeout);
+            }
+        } catch (SQLException | RuntimeException e) {
+            log.debug("恢复连接级网络超时失败，原超时时间：{}毫秒", previousTimeout, e);
         }
     }
 

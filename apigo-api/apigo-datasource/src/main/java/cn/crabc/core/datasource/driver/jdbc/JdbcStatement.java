@@ -151,21 +151,22 @@ public class JdbcStatement implements StatementMapper<Map<String, Object>> {
             log.error("SQL执行失败 - 数据源: {}, Schema: {}, SQL前缀: {}, 错误: {}",
                      dataSourceId, schema, truncateSql(sql), errorMsg, e);
 
-            boolean timeout = SqlExceptionUtils.isTimeout(e);
+            // 超时是接口配置是否生效的显式信号，预览也按错误码上抛，不能降级成结果数据；
+            // 已归类的业务异常（如未配置数据源、SQL 不安全）仍交给下面的分支处理
+            if (!(e instanceof CustomException) && SqlExceptionUtils.isTimeout(e)) {
+                throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
+            }
             if (execType == null) {
-                // 已归类的业务异常（如未配置数据源、SQL 不安全）直接向上抛，
-                // 否则错误码与可诊断文案会被改写成笼统的「查询执行失败」
+                // 已归类的业务异常直接向上抛，否则错误码与可诊断文案会被改写成笼统的「查询执行失败」
                 if (e instanceof CustomException customException) {
                     throw customException;
-                }
-                if (timeout) {
-                    throw new CustomException(ErrorStatusEnum.API_SCRIPT_TIMEOUT.getCode(), timeoutMessage(timeoutSeconds));
                 }
                 // 返回通用错误信息，不暴露SQL细节
                 throw new CustomException(51000, "查询执行失败，请检查参数和权限");
             } else {
+                // 预览保留行内错误展示，便于开发页直接看到 SQL 问题
                 LinkedHashMap<String, Object> errorMap = new LinkedHashMap<>();
-                errorMap.put("执行异常", timeout ? timeoutMessage(timeoutSeconds) : "查询执行失败, 错误信息: " + errorMsg);
+                errorMap.put("执行异常", "查询执行失败, 错误信息: " + errorMsg);
                 list.add(errorMap);
             }
         } finally {

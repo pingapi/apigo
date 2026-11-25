@@ -15,6 +15,7 @@
  */
 package cn.crabc.core.datasource.mapper;
 
+import cn.crabc.core.datasource.constant.BaseConstant;
 import cn.crabc.core.datasource.util.CachedXmlLanguageDriver;
 import org.apache.ibatis.annotations.*;
 
@@ -39,7 +40,8 @@ public interface BaseDataHandleMapper {
     @Lang(CachedXmlLanguageDriver.class)
     @SelectProvider(type = BaseSelectProvider.class, method = "executeQuery")
     @ResultType(LinkedHashMap.class)
-    @Options(timeout = 30)  // 超时时间
+    // 未配置接口超时时间时的默认值，与执行层 DEFAULT_SCRIPT_TIMEOUT_SECONDS 保持同一来源
+    @Options(timeout = BaseConstant.DEFAULT_SCRIPT_TIMEOUT_SECONDS)
     List<LinkedHashMap<String, Object>> executeQuery(Map<String, Object> params);
 
     /**
@@ -49,7 +51,8 @@ public interface BaseDataHandleMapper {
      */
     @Lang(CachedXmlLanguageDriver.class)
     @InsertProvider(type = BaseSelectProvider.class, method = "executeInsert")
-    @Options(timeout = 60)
+    // 新增与查询/更新/删除保持同一默认超时，避免未配置时出现 30/60 秒的差异
+    @Options(timeout = BaseConstant.DEFAULT_SCRIPT_TIMEOUT_SECONDS)
     Integer executeInsert(Map<String, Object> params);
 
     /**
@@ -59,7 +62,7 @@ public interface BaseDataHandleMapper {
      */
     @Lang(CachedXmlLanguageDriver.class)
     @UpdateProvider(type = BaseSelectProvider.class, method = "executeUpdate")
-    @Options(timeout = 30)
+    @Options(timeout = BaseConstant.DEFAULT_SCRIPT_TIMEOUT_SECONDS)
     Integer executeUpdate(Map<String, Object> params);
 
     /**
@@ -69,6 +72,6 @@ public interface BaseDataHandleMapper {
      */
     @Lang(CachedXmlLanguageDriver.class)
     @UpdateProvider(type = BaseSelectProvider.class, method = "executeDelete")
-    @Options(timeout = 30)
+    @Options(timeout = BaseConstant.DEFAULT_SCRIPT_TIMEOUT_SECONDS)
     Integer executeDelete(Map<String, Object> params);
 }

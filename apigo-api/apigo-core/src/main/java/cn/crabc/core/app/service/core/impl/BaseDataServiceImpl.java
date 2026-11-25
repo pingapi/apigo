@@ -55,9 +55,11 @@ public class BaseDataServiceImpl implements IBaseDataService {
         }
         params.put(BaseConstant.BASE_API_EXEC_TYPE, "preview");
         params.put(BaseConstant.PAGE_SETUP, 1);
-        // 预览同样遵循接口配置的脚本超时时间，未配置时由执行层回落到平台默认值
+        // 预览同样遵循接口配置的脚本超时时间，未配置时由执行层回落到平台默认值；
+        // 上限在此统一收敛，避免依赖下游各自 clamp 造成入口间不一致
         if (scriptTimeoutSeconds != null && scriptTimeoutSeconds > 0) {
-            params.put(BaseConstant.SCRIPT_TIMEOUT_SECONDS, scriptTimeoutSeconds);
+            params.put(BaseConstant.SCRIPT_TIMEOUT_SECONDS,
+                    Math.min(scriptTimeoutSeconds, BaseConstant.MAX_SCRIPT_TIMEOUT_SECONDS));
         }
         Object result = this.execute(datasourceId, datasourceType, schema, sql, params);
         PreviewVO preview = new PreviewVO();
